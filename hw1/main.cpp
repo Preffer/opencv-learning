@@ -1,4 +1,5 @@
 #include <iostream>
+#include <boost/format.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include "i18nText.h"
@@ -8,24 +9,26 @@ using namespace cv;
 
 int main(int argc, char *argv[]) {
 	CommandLineParser cmd(argc, argv,
-		"{ i | input        | input.avi  | Input video }"
-		"{ t | threshold    | 128        | Threshold }"
-		"{ o | output       | output     | Output video }"
-		"{ h | help         | false      | print help message }");
+		"{ 1 |      | input.avi        | Input video }"
+		"{ 2 |      | 128              | Threshold }"
+		"{ 3 |      | output           | Output video }"
+		"{ h | help | false            | print help message }"
+		"{ f | font | wqy-microhei.ttc | font used to display text }");
 	
 	if(cmd.get<bool>("help")){
-		cout << "Usage: main [options]" << endl;
-		cout << "Available options:" << endl;
+		cout << "Options:" << endl;
 		cmd.printParams();
 		return EXIT_SUCCESS;
 	}
 
 	string title = "Threshold";
-	string inputFile = cmd.get<string>("input");
-	int thresholdValue = cmd.get<int>("threshold");
-	string outputFile = cmd.get<string>("output");
+	string inputFile = cmd.get<string>("1");
+	int thresholdValue = cmd.get<int>("2");
+	string outputFile = cmd.get<string>("3");
+	string font = cmd.get<string>("font");
 
 	VideoCapture input(inputFile);
+
 	if(!input.isOpened()){
 		cerr << "Failed to open " << inputFile << endl;
 		return EXIT_FAILURE;
@@ -46,25 +49,25 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	Mat inputFrame, outputFrame;
+	i18nText i18n(font, 18);
+	int interval = 1000 / input.get(CV_CAP_PROP_FPS);
 	Point position(
 		input.get(CV_CAP_PROP_FRAME_WIDTH) * 0.02,
 		input.get(CV_CAP_PROP_FRAME_HEIGHT) * 0.95
 	);
-	Scalar color(255, 255, 255);
-	int interval = 1000 / input.get(CV_CAP_PROP_FPS);
-	namedWindow(title, CV_WINDOW_AUTOSIZE);
 
-	i18nText i18n("wqy-microhei.ttc", 18);
+	cout << boost::format("Converting %1% to %2% with threshold = %3% ...") % inputFile % outputFile % thresholdValue << endl;
+
+	Mat inputFrame, outputFrame;
+	namedWindow(title, CV_WINDOW_AUTOSIZE);
 
 	while(true){
 		input >> inputFrame;
 		if(inputFrame.empty()){
 			break;
 		}
-
 		cvtColor(inputFrame, inputFrame, COLOR_BGR2GRAY);
-		i18n.putText(inputFrame, L"黄羽众/3120102663", position, color);
+		i18n.putText(inputFrame, L"黄羽众/3120102663", position, CV_RGB(255, 255, 255));
 		threshold(inputFrame, outputFrame, thresholdValue, 255, THRESH_BINARY);
 		imshow(title, outputFrame);
 		output << outputFrame;

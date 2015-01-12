@@ -7,7 +7,7 @@ i18nText::i18nText() {
 	}
 }
 
-i18nText::i18nText(const string& path, uint size, float space, float gap) : i18nText(){
+i18nText::i18nText(const string& path, uint size, float space, float gap) : i18nText() {
 	setFont(path);
 	setStyle(size, space, gap);
 }
@@ -19,7 +19,7 @@ i18nText::~i18nText() {
 
 void i18nText::setFont(const string& path) {
 	if(FT_New_Face(library, path.c_str(), 0, &face)){
-		throw invalid_argument("Faild to load font: " + path);
+		throw invalid_argument("Failed to load font: " + path);
 	}
 	FT_Set_Pixel_Sizes(face, size, 0);
 }
