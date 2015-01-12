@@ -1,7 +1,7 @@
 CC			= g++
-CFLAGS		= -std=c++11 -Wall -march=native `pkg-config --cflags opencv`
-LINKFLAGS	= `pkg-config --libs opencv`
-SRCS		= main.cpp
+CFLAGS		= -std=c++11 -Wall -march=native `pkg-config --cflags opencv freetype2`
+LINKFLAGS	= `pkg-config --libs opencv freetype2`
+SRCS		= $(wildcard *.cpp)
 OBJS		= $(SRCS:.cpp=.o)
 PROG		= main
 

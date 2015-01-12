@@ -1,11 +1,10 @@
 #include <iostream>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include "i18nText.h"
 
 using namespace std;
 using namespace cv;
-
-const string title = "Threshold";
 
 int main(int argc, char *argv[]) {
 	CommandLineParser cmd(argc, argv,
@@ -21,6 +20,7 @@ int main(int argc, char *argv[]) {
 		return EXIT_SUCCESS;
 	}
 
+	string title = "Threshold";
 	string inputFile = cmd.get<string>("input");
 	int thresholdValue = cmd.get<int>("threshold");
 	string outputFile = cmd.get<string>("output");
@@ -48,12 +48,14 @@ int main(int argc, char *argv[]) {
 
 	Mat inputFrame, outputFrame;
 	Point position(
-		input.get(CV_CAP_PROP_FRAME_WIDTH) * 0.05,
+		input.get(CV_CAP_PROP_FRAME_WIDTH) * 0.02,
 		input.get(CV_CAP_PROP_FRAME_HEIGHT) * 0.95
 	);
 	Scalar color(255, 255, 255);
 	int interval = 1000 / input.get(CV_CAP_PROP_FPS);
 	namedWindow(title, CV_WINDOW_AUTOSIZE);
+
+	i18nText i18n("wqy-microhei.ttc", 18);
 
 	while(true){
 		input >> inputFrame;
@@ -62,8 +64,8 @@ int main(int argc, char *argv[]) {
 		}
 
 		cvtColor(inputFrame, inputFrame, COLOR_BGR2GRAY);
+		i18n.putText(inputFrame, L"黄羽众/3120102663", position, color);
 		threshold(inputFrame, outputFrame, thresholdValue, 255, THRESH_BINARY);
-		putText(outputFrame, "Huang Yuzhong - 3120102663", position, FONT_HERSHEY_SIMPLEX, 0.8, color, 2);
 		imshow(title, outputFrame);
 		output << outputFrame;
 		waitKey(interval);
