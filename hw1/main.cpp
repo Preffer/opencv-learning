@@ -49,28 +49,28 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	i18nText i18n(font, 18);
+	i18nText i18n(font, 30);
 	int interval = 1000 / input.get(CV_CAP_PROP_FPS);
 	Point position(
-		input.get(CV_CAP_PROP_FRAME_WIDTH) * 0.02,
+		input.get(CV_CAP_PROP_FRAME_WIDTH) * 0.05,
 		input.get(CV_CAP_PROP_FRAME_HEIGHT) * 0.95
 	);
 
 	cout << boost::format("Converting %1% to %2% with threshold = %3% ...") % inputFile % outputFile % thresholdValue << endl;
 
-	Mat inputFrame, outputFrame;
+	Mat frame;
 	namedWindow(title, CV_WINDOW_AUTOSIZE);
 
 	while(true){
-		input >> inputFrame;
-		if(inputFrame.empty()){
+		input >> frame;
+		if(frame.empty()){
 			break;
 		}
-		cvtColor(inputFrame, inputFrame, COLOR_BGR2GRAY);
-		i18n.putText(inputFrame, L"黄羽众/3120102663", position, CV_RGB(255, 255, 255));
-		threshold(inputFrame, outputFrame, thresholdValue, 255, THRESH_BINARY);
-		imshow(title, outputFrame);
-		output << outputFrame;
+		i18n.putText(frame, L"黄羽众/3120102663", position, CV_RGB(255, 255, 255));
+		cvtColor(frame, frame, COLOR_BGR2GRAY);
+		threshold(frame, frame, thresholdValue, 255, THRESH_BINARY);
+		imshow(title, frame);
+		output << frame;
 		waitKey(interval);
 	}
 

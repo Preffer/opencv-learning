@@ -41,8 +41,7 @@ void i18nText::putText(Mat& img, const wstring& text, Point pos, Scalar color) {
 
 void i18nText::putWChar(Mat& img, wchar_t wc, Point& pos, Scalar& color) {
 	FT_UInt glyph_index = FT_Get_Char_Index(face, wc);
-	FT_Load_Glyph(face, glyph_index, FT_LOAD_DEFAULT);
-	FT_Render_Glyph(face->glyph, FT_RENDER_MODE_MONO);
+	FT_Load_Glyph(face, glyph_index, FT_LOAD_RENDER | FT_LOAD_MONOCHROME | FT_LOAD_TARGET_MONO);
 	FT_GlyphSlot slot = face->glyph;
 
 	int rows = slot->bitmap.rows;
@@ -50,9 +49,9 @@ void i18nText::putWChar(Mat& img, wchar_t wc, Point& pos, Scalar& color) {
 
 	for (int i = 0; i < rows; ++i) {
 		for (int j = 0; j < cols; ++j) {
-			int off  = ((0 == 0) ? i : (rows - 1 - i)) * slot->bitmap.pitch + j / 8;
+			int off  = i * slot->bitmap.pitch + j / 8;
 			if (slot->bitmap.buffer[off] & (0xC0 >> (j % 8))) {
-				int r = (0 == 0) ? pos.y - (rows - 1 - i) : pos.y + i;
+				int r = pos.y - (rows - 1 - i);
 				int c = pos.x + j;
 
 				if (r >= 0 && r < img.rows && c >= 0 && c < img.cols) {
