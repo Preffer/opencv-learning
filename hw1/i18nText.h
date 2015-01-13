@@ -16,10 +16,10 @@ public:
 
 	void setFont(const string& path);
 	void setStyle(uint size, float space, float gap);
-	void putText(Mat& img, const wstring& text, Point pos, Scalar color = CV_RGB(0, 0, 0));
+	void putText(Mat& img, const wstring& text, Point pos, Vec3b color = Vec3b(0, 0, 0));
 
 private:
-	void putWChar(Mat& img, wchar_t wc, Point& pos, Scalar& color);
+	void putWChar(Mat& img, wchar_t wc, Point& pos, Vec3b& color);
 
 	FT_Library library;
 	FT_Face face;

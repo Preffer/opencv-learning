@@ -28,7 +28,6 @@ int main(int argc, char *argv[]) {
 	string font = cmd.get<string>("font");
 
 	VideoCapture input(inputFile);
-
 	if(!input.isOpened()){
 		cerr << "Failed to open " << inputFile << endl;
 		return EXIT_FAILURE;
@@ -49,13 +48,12 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	i18nText i18n(font, 30);
+	i18nText i18n(font, 32);
 	int interval = 1000 / input.get(CV_CAP_PROP_FPS);
 	Point position(
 		input.get(CV_CAP_PROP_FRAME_WIDTH) * 0.05,
 		input.get(CV_CAP_PROP_FRAME_HEIGHT) * 0.95
 	);
-
 	cout << boost::format("Converting %1% to %2% with threshold = %3% ...") % inputFile % outputFile % thresholdValue << endl;
 
 	Mat frame;
@@ -66,7 +64,7 @@ int main(int argc, char *argv[]) {
 		if(frame.empty()){
 			break;
 		}
-		i18n.putText(frame, L"黄羽众/3120102663", position, CV_RGB(255, 255, 255));
+		i18n.putText(frame, L"黄羽众/3120102663", position, Vec3b(255, 255, 255));
 		cvtColor(frame, frame, COLOR_BGR2GRAY);
 		threshold(frame, frame, thresholdValue, 255, THRESH_BINARY);
 		imshow(title, frame);
