@@ -1,19 +1,14 @@
 #include <iostream>
-#include <list>
 #include <boost/format.hpp>
-#include <boost/accumulators/accumulators.hpp>
-#include <boost/accumulators/statistics/stats.hpp>
-#include <boost/accumulators/statistics/variance.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
 using namespace std;
 using namespace boost;
-using namespace boost::accumulators;
 using namespace cv;
 
 typedef vector<Point> Contour;
-typedef pair<Contour, float> ContourScore;
+typedef pair<Contour, float> ContourRecord;
 
 const int borderW = 10;
 
@@ -27,6 +22,10 @@ int main(int argc, char **argv) {
 	namedWindow("Grey", CV_WINDOW_AUTOSIZE);
 	imshow("Grey", step);
 
+	dilate(step, step, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+	namedWindow("Dilation", CV_WINDOW_AUTOSIZE);
+	imshow("Dilation", step);
+
 	normalize(step, step, 0, 255, NORM_MINMAX);
 	namedWindow("Normalize", CV_WINDOW_AUTOSIZE);
 	imshow("Normalize", step);
@@ -35,7 +34,7 @@ int main(int argc, char **argv) {
 	namedWindow("GaussianBlur", CV_WINDOW_AUTOSIZE);
 	imshow("GaussianBlur", step);
 
-	threshold(step, step, 128, 255, THRESH_BINARY);
+	threshold(step, step, 0, 255, THRESH_BINARY | THRESH_OTSU);
 	namedWindow("Threshold", CV_WINDOW_AUTOSIZE);
 	imshow("Threshold", step);
 
@@ -43,66 +42,48 @@ int main(int argc, char **argv) {
 	namedWindow("MakeBorder", CV_WINDOW_AUTOSIZE);
 	imshow("MakeBorder", step);
 
+	vector<Contour> rawContours;
+	vector<Vec4i> hierarchy;
+
+	findContours(step, rawContours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
+	step = Mat::zeros(step.size(), CV_8UC1);
+	drawContours(step, rawContours, -1, CV_RGB(255, 255, 255));
+	namedWindow("RawContours", CV_WINDOW_AUTOSIZE);
+	imshow("RawContours", step);
+
 	vector<Contour> contours;
-	findContours(step, contours, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
-	contours.pop_back();
-	drawContours(step, contours, -1, CV_RGB(255, 255, 255));
-	namedWindow("Contours", CV_WINDOW_AUTOSIZE);
-	imshow("Contours", step);
-	cout << contours.size() << endl;
-
-	list<ContourScore> scores;
-	accumulator_set<float, stats<tag::mean> > roughAcc;
-	for(Contour& contour : contours){
-		if(contour.size() < 5){
+	ContourRecord maxCell(rawContours[0], contourArea(rawContours[10]));
+	ContourRecord minCell(rawContours[0], contourArea(rawContours[10]));
+	float totalArea = 0;
+	for(int i = rawContours.size() - 1; i >= 0; i--){
+		if(rawContours[i].size() < 5){
 			continue;
-		} else{
-			float score = contourArea(contour);
-			scores.push_back(ContourScore(contour, score));
-			roughAcc(score);
+		}
+		if(hierarchy[i][3] == 0){
+			contours.push_back(rawContours[i]);
+			float area = contourArea(rawContours[i]);
+			if(area > maxCell.second){
+				maxCell = ContourRecord(rawContours[i], area);
+			}
+			if(area < minCell.second){
+				minCell = ContourRecord(rawContours[i], area);
+			}
+			totalArea += area;
 		}
 	}
 
-	float mean = accumulators::mean(roughAcc);
-	cout << "Mean: " << mean << endl;
-	float minLimit = mean / 100;
-	float maxLimit = mean * 10;
+	step = Mat::zeros(step.size(), CV_8UC1);
+	drawContours(step, contours, -1, CV_RGB(255, 255, 255));
+	namedWindow("TweakContours", CV_WINDOW_AUTOSIZE);
+	imshow("TweakContours", step);
 
-	scores.remove_if([&](ContourScore score) {
-		if(score.second < minLimit || score.second > maxLimit){
-			return true;
-		} else{
-			return false;
-		}
-	});
+	cout << boost::format("%1% cells in total") % contours.size() << endl;
+	RotatedRect maxBox = fitEllipse(maxCell.first);
+	RotatedRect minBox = fitEllipse(minCell.first);
+	cout << boost::format("Max cell:\nArea: %1%, ArcLength: %2%, Orientation: %3%, Center: %4%") % maxCell.second % arcLength(maxCell.first, true) % maxBox.angle % maxBox.center << endl;
+	cout << boost::format("Min cell:\nArea: %1%, ArcLength: %2%, Orientation: %3%, Center: %4%") % minCell.second % arcLength(minCell.first, true) % minBox.angle % minBox.center << endl;
 
-	accumulator_set<float, stats<tag::variance> > fineAcc;
-	for(ContourScore& score : scores){
-		fineAcc(score.second);
-	}
-
-	mean = accumulators::mean(fineAcc);
-	int vari = sqrt(variance(fineAcc)) * 2;
-	cout << "Mean: " << mean << endl;
-	cout << "Variance: " << vari << endl;
-	scores.remove_if([&](ContourScore score) {
-		return abs(score.second - mean) > vari;
-	});
-
-	Mat result(step.size(), CV_8UC1);
-	cout << scores.size() << endl;
-	for(ContourScore& score : scores){
-		RotatedRect box = fitEllipse(score.first);
-
-		ellipse(result, box.center, box.size, box.angle, 0, 360, CV_RGB(0, 0, 255), 1, CV_AA);
-
-		//cout << boost::format("中心位置：x=%1%, y=%2%") % box.center.x % box.center.y << endl;
-		//cout << boost::format("半径或长短轴长度：w=%1%, h=%2%") % box.size.width % box.size.height << endl << endl;
-	}
-
-	namedWindow("Result", CV_WINDOW_AUTOSIZE);
-	imshow("Result", result);
-
+	cout << boost::format("Average area: %1%") % (totalArea / contours.size()) << endl;
 	cvWaitKey();
 
 	return EXIT_SUCCESS;
