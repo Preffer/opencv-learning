@@ -3,6 +3,7 @@
 #include <boost/format.hpp>
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
+#include <boost/accumulators/statistics/min.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
 #include <boost/accumulators/statistics/error_of.hpp>
 #include <boost/accumulators/statistics/error_of_mean.hpp>
@@ -77,7 +78,8 @@ int main(int argc, char *argv[]) {
 	imshow("RawContours", step);
 
 	list<ContourRecord> candidateRecords;
-	accumulator_set<float, stats<tag::mean, tag::median, tag::error_of<tag::mean>> > acc;
+
+	accumulator_set<float, stats<tag::min, tag::max, tag::error_of<tag::mean> > > acc;
 	for(int i = rawContours.size() - 1; i >= 0; i--){
 		if(rawContours[i].size() < 5){
 			continue;
@@ -89,13 +91,59 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	float max = accumulators::mean(acc) + 10 * accumulators::error_of<tag::mean>(acc);
-	float min = accumulators::mean(acc) - 10 * accumulators::error_of<tag::mean>(acc);
+	float smallMean = accumulators::min(acc);
+	float bigMean = accumulators::max(acc);
+	float various = INT_MAX;
+	float error = accumulators::error_of<tag::mean>(acc);
 
-	cout << boost::format("Mean: %1%, Median: %2%, Error: %3%, Min: %4%, Max: %5%") % accumulators::mean(acc) % accumulators::median(acc) % accumulators::error_of<tag::mean>(acc) % min % max << endl;
+	while(true){
+		cout << boost::format("smallMean: %1%, bigMean: %2%, various: %3%") % smallMean % bigMean % various<< endl;
+
+		float critical = (smallMean + bigMean) / 2;
+		auto& smallAcc = *(new accumulator_set<float, stats<tag::mean, tag::error_of<tag::mean> > >);
+		auto& bigAcc = *(new accumulator_set<float, stats<tag::mean, tag::error_of<tag::mean> > >);
+		for(ContourRecord& record : candidateRecords){
+			if(record.second < critical){
+				smallAcc(record.second);
+			} else{
+				bigAcc(record.second);
+			}
+		}
+		float thisSmallMean = accumulators::mean(smallAcc);
+		float thisbigMean = accumulators::mean(bigAcc);
+		float thisVarious = accumulators::error_of<tag::mean>(smallAcc) + accumulators::error_of<tag::mean>(bigAcc);
+		delete &smallAcc;
+		delete &bigAcc;
+		if(thisVarious >=  various){
+			smallMean = thisSmallMean;
+			bigMean = thisbigMean;
+			various = thisVarious;
+			break;
+		} else{
+			various = thisVarious;
+			smallMean = thisSmallMean;
+			bigMean = thisbigMean;
+		}
+	}
+
+	float minLimit = smallMean - 3 * error;
+	cout << boost::format("Mean: %1%, Error: %2%, Min: %3%") % accumulators::mean(acc) % error % minLimit << endl;
+
+	accumulator_set<float, stats<tag::mean, tag::error_of<tag::mean> > > tmpAcc;
+	candidateRecords.remove_if([&](ContourRecord& record){
+		if(record.second < minLimit){
+			return true;
+		} else{
+			tmpAcc(record.second);
+			return false;
+		}
+	});
+
+	minLimit = smallMean - 2.35 * accumulators::error_of<tag::mean>(tmpAcc);
+	cout << boost::format("Mean: %1%, Error: %2%, Min: %3%") % accumulators::mean(tmpAcc) % accumulators::error_of<tag::mean>(tmpAcc) % minLimit << endl;
 
 	candidateRecords.remove_if([&](ContourRecord& record){
-		if(record.second < min || record.second > max){
+		if(record.second < minLimit){
 			return true;
 		} else{
 			return false;
