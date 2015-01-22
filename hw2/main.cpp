@@ -4,10 +4,10 @@
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
 #include <boost/accumulators/statistics/min.hpp>
+#include <boost/accumulators/statistics/max.hpp>
+#include <boost/accumulators/statistics/count.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
-#include <boost/accumulators/statistics/error_of.hpp>
-#include <boost/accumulators/statistics/error_of_mean.hpp>
-#include <boost/accumulators/statistics/median.hpp>
+#include <boost/accumulators/statistics/variance.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
@@ -78,83 +78,79 @@ int main(int argc, char *argv[]) {
 	imshow("RawContours", step);
 
 	list<ContourRecord> candidateRecords;
-
-	accumulator_set<float, stats<tag::min, tag::max, tag::error_of<tag::mean> > > acc;
 	for(int i = rawContours.size() - 1; i >= 0; i--){
 		if(rawContours[i].size() < 5){
 			continue;
 		}
 		if(hierarchy[i][3] >= 0){
-			float area = contourArea(rawContours[i]);
-			candidateRecords.push_back(ContourRecord(rawContours[i], area));
-			acc(area);
+			candidateRecords.push_back(ContourRecord(rawContours[i], contourArea(rawContours[i])));
 		}
 	}
 
-	float smallMean = accumulators::min(acc);
-	float bigMean = accumulators::max(acc);
-	float various = INT_MAX;
-	float error = accumulators::error_of<tag::mean>(acc);
-
+	// k-means
+	// loop to cut filtered points
+	float rate = 0.5;
 	while(true){
-		cout << boost::format("smallMean: %1%, bigMean: %2%, various: %3%") % smallMean % bigMean % various<< endl;
-
-		float critical = (smallMean + bigMean) / 2;
-		auto& smallAcc = *(new accumulator_set<float, stats<tag::mean, tag::error_of<tag::mean> > >);
-		auto& bigAcc = *(new accumulator_set<float, stats<tag::mean, tag::error_of<tag::mean> > >);
+		accumulator_set<float, stats<tag::min, tag::max, tag::mean, tag::variance> > globalAcc;
 		for(ContourRecord& record : candidateRecords){
-			if(record.second < critical){
-				smallAcc(record.second);
+			globalAcc(record.second);
+		}
+		float mean = accumulators::mean(globalAcc);
+		float smallMean = accumulators::min(globalAcc);
+		float bigMean = accumulators::max(globalAcc);
+		float error = sqrt(accumulators::variance(globalAcc));
+		float distance = INT_MAX;
+
+		// loop to find k-means
+		while(true){
+			cout << boost::format("Mean: %1%, smallMean: %2%, bigMean: %3%, error: %4%, distance: %5%") % mean % smallMean % bigMean % error % distance << endl;
+
+			float critical = (smallMean + bigMean) / 2;
+			accumulator_set<float, stats<tag::count, tag::mean, tag::variance> > smallAcc;
+			accumulator_set<float, stats<tag::count, tag::mean, tag::variance> > bigAcc;
+			for(ContourRecord& record : candidateRecords){
+				if(record.second < critical){
+					smallAcc(record.second);
+				} else{
+					bigAcc(record.second);
+				}
+			}
+
+			float _smallMean = accumulators::mean(smallAcc);
+			float _bigMean = accumulators::mean(bigAcc);
+			float _distance = accumulators::variance(smallAcc) * accumulators::count(smallAcc) + accumulators::variance(bigAcc) * accumulators::count(bigAcc);
+
+			if(distance > _distance){
+				smallMean = _smallMean;
+				bigMean = _bigMean;
+				distance = _distance;
 			} else{
-				bigAcc(record.second);
+				break;
 			}
 		}
-		float thisSmallMean = accumulators::mean(smallAcc);
-		float thisbigMean = accumulators::mean(bigAcc);
-		float thisVarious = accumulators::error_of<tag::mean>(smallAcc) + accumulators::error_of<tag::mean>(bigAcc);
-		delete &smallAcc;
-		delete &bigAcc;
-		if(thisVarious >=  various){
-			smallMean = thisSmallMean;
-			bigMean = thisbigMean;
-			various = thisVarious;
+
+		float minLimit = smallMean - rate * error;
+		int oldSize = candidateRecords.size();
+		candidateRecords.remove_if([&](ContourRecord& record){
+			if(record.second < minLimit){
+				return true;
+			} else{
+				return false;
+			}
+		});
+		int newSize = candidateRecords.size();
+		cout << boost::format("minLimit: %1%, oldSize: %2%, newSize: %3%") % minLimit % oldSize % newSize << endl;
+		if(newSize == oldSize){
 			break;
-		} else{
-			various = thisVarious;
-			smallMean = thisSmallMean;
-			bigMean = thisbigMean;
 		}
+		rate = (rate + 2) / 3;
 	}
-
-	float minLimit = smallMean - 3 * error;
-	cout << boost::format("Mean: %1%, Error: %2%, Min: %3%") % accumulators::mean(acc) % error % minLimit << endl;
-
-	accumulator_set<float, stats<tag::mean, tag::error_of<tag::mean> > > tmpAcc;
-	candidateRecords.remove_if([&](ContourRecord& record){
-		if(record.second < minLimit){
-			return true;
-		} else{
-			tmpAcc(record.second);
-			return false;
-		}
-	});
-
-	minLimit = smallMean - 2.35 * accumulators::error_of<tag::mean>(tmpAcc);
-	cout << boost::format("Mean: %1%, Error: %2%, Min: %3%") % accumulators::mean(tmpAcc) % accumulators::error_of<tag::mean>(tmpAcc) % minLimit << endl;
-
-	candidateRecords.remove_if([&](ContourRecord& record){
-		if(record.second < minLimit){
-			return true;
-		} else{
-			return false;
-		}
-	});
 
 	ContourRecord maxCell = *candidateRecords.begin();
 	ContourRecord minCell = maxCell;
 
 	vector<Contour> contours;
-	accumulator_set<float, stats<tag::mean> > meanAcc;
+	accumulator_set<float, stats<tag::mean> > finalAcc;
 	for(ContourRecord& record : candidateRecords){
 		if(record.second > maxCell.second){
 			maxCell = record;
@@ -163,7 +159,7 @@ int main(int argc, char *argv[]) {
 			minCell = record;
 		}
 		contours.push_back(record.first);
-		meanAcc(record.second);
+		finalAcc(record.second);
 	}
 	RotatedRect maxBox = fitEllipse(maxCell.first);
 	RotatedRect minBox = fitEllipse(minCell.first);
@@ -175,7 +171,7 @@ int main(int argc, char *argv[]) {
 	cout << boost::format("Total:\n\t%1% cells") % contours.size() << endl;
 	cout << boost::format("Max cell:\n\tArea: %1%\n\tArcLength: %2%\n\tOrientation: %3%\n\tCenter: %4%") % maxCell.second % arcLength(maxCell.first, true) % maxBox.angle % (maxBox.center - Point2f(borderS, borderS)) << endl;
 	cout << boost::format("Min cell:\n\tArea: %1%\n\tArcLength: %2%\n\tOrientation: %3%\n\tCenter: %4%") % minCell.second % arcLength(minCell.first, true) % minBox.angle % (minBox.center - Point2f(borderS, borderS)) << endl;
-	cout << boost::format("Average:\n\tCell area: %1%") % accumulators::mean(meanAcc) << endl;
+	cout << boost::format("Average:\n\tCell area: %1%") % accumulators::mean(finalAcc) << endl;
 
 	waitKey();
 	return EXIT_SUCCESS;
