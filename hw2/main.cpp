@@ -1,10 +1,18 @@
 #include <iostream>
+#include <list>
 #include <boost/format.hpp>
+#include <boost/accumulators/accumulators.hpp>
+#include <boost/accumulators/statistics/stats.hpp>
+#include <boost/accumulators/statistics/mean.hpp>
+#include <boost/accumulators/statistics/error_of.hpp>
+#include <boost/accumulators/statistics/error_of_mean.hpp>
+#include <boost/accumulators/statistics/median.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
 using namespace std;
 using namespace boost;
+using namespace boost::accumulators;
 using namespace cv;
 
 typedef vector<Point> Contour;
@@ -68,28 +76,46 @@ int main(int argc, char *argv[]) {
 	drawContours(step, rawContours, -1, CV_RGB(255, 255, 255));
 	imshow("RawContours", step);
 
-	vector<Contour> contours;
+	list<ContourRecord> candidateRecords;
+	accumulator_set<float, stats<tag::mean, tag::median, tag::error_of<tag::mean>> > acc;
 	for(int i = rawContours.size() - 1; i >= 0; i--){
 		if(rawContours[i].size() < 5){
 			continue;
 		}
 		if(hierarchy[i][3] >= 0){
-			contours.push_back(rawContours[i]);
+			float area = contourArea(rawContours[i]);
+			candidateRecords.push_back(ContourRecord(rawContours[i], area));
+			acc(area);
 		}
 	}
 
-	ContourRecord maxCell(contours[0], contourArea(contours[0]));
-	ContourRecord minCell(maxCell);
-	float totalArea = 0;
-	for(Contour& contour : contours){
-		float area = contourArea(contour);
-		if(area > maxCell.second){
-			maxCell = ContourRecord(contour, area);
+	float max = accumulators::mean(acc) + 10 * accumulators::error_of<tag::mean>(acc);
+	float min = accumulators::mean(acc) - 10 * accumulators::error_of<tag::mean>(acc);
+
+	cout << boost::format("Mean: %1%, Median: %2%, Error: %3%, Min: %4%, Max: %5%") % accumulators::mean(acc) % accumulators::median(acc) % accumulators::error_of<tag::mean>(acc) % min % max << endl;
+
+	candidateRecords.remove_if([&](ContourRecord& record){
+		if(record.second < min || record.second > max){
+			return true;
+		} else{
+			return false;
 		}
-		if(area < minCell.second){
-			minCell = ContourRecord(contour, area);
+	});
+
+	ContourRecord maxCell = *candidateRecords.begin();
+	ContourRecord minCell = maxCell;
+
+	vector<Contour> contours;
+	accumulator_set<float, stats<tag::mean> > meanAcc;
+	for(ContourRecord& record : candidateRecords){
+		if(record.second > maxCell.second){
+			maxCell = record;
 		}
-		totalArea += area;
+		if(record.second < minCell.second){
+			minCell = record;
+		}
+		contours.push_back(record.first);
+		meanAcc(record.second);
 	}
 	RotatedRect maxBox = fitEllipse(maxCell.first);
 	RotatedRect minBox = fitEllipse(minCell.first);
@@ -101,7 +127,7 @@ int main(int argc, char *argv[]) {
 	cout << boost::format("Total:\n\t%1% cells") % contours.size() << endl;
 	cout << boost::format("Max cell:\n\tArea: %1%\n\tArcLength: %2%\n\tOrientation: %3%\n\tCenter: %4%") % maxCell.second % arcLength(maxCell.first, true) % maxBox.angle % (maxBox.center - Point2f(borderS, borderS)) << endl;
 	cout << boost::format("Min cell:\n\tArea: %1%\n\tArcLength: %2%\n\tOrientation: %3%\n\tCenter: %4%") % minCell.second % arcLength(minCell.first, true) % minBox.angle % (minBox.center - Point2f(borderS, borderS)) << endl;
-	cout << boost::format("Average:\n\tCell area: %1%") % (totalArea / contours.size()) << endl;
+	cout << boost::format("Average:\n\tCell area: %1%") % accumulators::mean(meanAcc) << endl;
 
 	waitKey();
 	return EXIT_SUCCESS;
