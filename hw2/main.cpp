@@ -94,15 +94,17 @@ int main(int argc, char *argv[]) {
 		for(ContourRecord& record : candidateRecords){
 			globalAcc(record.second);
 		}
-		//float mean = accumulators::mean(globalAcc);
+		float mean = accumulators::mean(globalAcc);
 		float smallMean = accumulators::min(globalAcc);
 		float bigMean = accumulators::max(globalAcc);
-		float error = sqrt(accumulators::variance(globalAcc));
+		float deviation = sqrt(accumulators::variance(globalAcc));
+		float smallDeviation = INT_MAX;
+		float bigDeviation = INT_MAX;
 		float distance = INT_MAX;
 
 		// loop to find k-means
 		while(true){
-			//cout << boost::format("Mean: %1%, smallMean: %2%, bigMean: %3%, error: %4%, distance: %5%") % mean % smallMean % bigMean % error % distance << endl;
+			cout << boost::format("Mean: %1%, smallMean: %2%, bigMean: %3%, deviation: %4%, distance: %5%") % mean % smallMean % bigMean % deviation % distance << endl;
 			float critical = (smallMean + bigMean) / 2;
 			accumulator_set<float, stats<tag::count, tag::mean, tag::variance> > smallAcc;
 			accumulator_set<float, stats<tag::count, tag::mean, tag::variance> > bigAcc;
@@ -123,12 +125,14 @@ int main(int argc, char *argv[]) {
 				bigMean = _bigMean;
 				distance = _distance;
 			} else{
+				smallDeviation = sqrt(accumulators::variance(smallAcc));
+				bigDeviation = sqrt(accumulators::variance(bigAcc));
 				break;
 			}
 		}
 
-		static float rate = 0.5;
-		float minLimit = smallMean - rate * error;
+		static float rate = 1;
+		float minLimit = smallMean - rate * (smallDeviation < bigDeviation ? smallDeviation : bigDeviation);
 		int oldSize = candidateRecords.size();
 		candidateRecords.remove_if([&](ContourRecord& record){
 			if(record.second < minLimit){
@@ -138,11 +142,11 @@ int main(int argc, char *argv[]) {
 			}
 		});
 		int newSize = candidateRecords.size();
-		//cout << boost::format("minLimit: %1%, oldSize: %2%, newSize: %3%") % minLimit % oldSize % newSize << endl;
+		cout << boost::format("minLimit: %1%, smallDeviation: %2%, bigDeviation: %3%, oldSize: %4%, newSize: %5%") % minLimit % smallDeviation % bigDeviation % oldSize % newSize << endl;
 		if(newSize == oldSize){
 			break;
 		}
-		rate = (rate + 2) / 3;
+		rate *= 1.2;
 	}
 
 	ContourRecord maxCell = *candidateRecords.begin();
