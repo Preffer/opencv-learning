@@ -87,67 +87,61 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	// k-means
-	// loops to filter small objects
-	while(true){
-		accumulator_set<float, stats<tag::min, tag::max, tag::mean, tag::variance> > globalAcc;
-		for(ContourRecord& record : candidateRecords){
-			globalAcc(record.second);
-		}
-		float mean = accumulators::mean(globalAcc);
-		float smallMean = accumulators::min(globalAcc);
-		float bigMean = accumulators::max(globalAcc);
-		float deviation = sqrt(accumulators::variance(globalAcc));
-		float smallDeviation = INT_MAX;
-		float bigDeviation = INT_MAX;
-		float distance = INT_MAX;
+	// k-means part
+	accumulator_set<float, stats<tag::min, tag::max, tag::mean> > initAcc;
+	for(ContourRecord& record : candidateRecords){
+		initAcc(record.second);
+	}
+	float smallMean = accumulators::min(initAcc);
+	float middleMean = accumulators::mean(initAcc);
+	float bigMean = accumulators::max(initAcc);
+	float distance = FLT_MAX;
 
-		// loop to find k-means
-		while(true){
-			cout << boost::format("Mean: %1%, smallMean: %2%, bigMean: %3%, deviation: %4%, distance: %5%") % mean % smallMean % bigMean % deviation % distance << endl;
-			float critical = (smallMean + bigMean) / 2;
-			accumulator_set<float, stats<tag::count, tag::mean, tag::variance> > smallAcc;
-			accumulator_set<float, stats<tag::count, tag::mean, tag::variance> > bigAcc;
-			for(ContourRecord& record : candidateRecords){
-				if(record.second < critical){
-					smallAcc(record.second);
-				} else{
+	cout << "Running K-means..." << endl;
+	while(true){
+		cout << boost::format("SmallMean: %1%, MiddleMean: %2%, bigMean: %3%, distance: %4%") % smallMean % middleMean % bigMean % distance << endl;
+		float smallLimit = (smallMean + middleMean) / 2;
+		float bigLimit = (middleMean + bigMean) / 2;
+		accumulator_set<float, stats<tag::count, tag::mean, tag::variance> > smallAcc;
+		accumulator_set<float, stats<tag::count, tag::mean, tag::variance> > middleAcc;
+		accumulator_set<float, stats<tag::count, tag::mean, tag::variance> > bigAcc;
+		for(ContourRecord& record : candidateRecords){
+			if(record.second < smallLimit){
+				smallAcc(record.second);
+			} else{
+				if(record.second > bigLimit){
 					bigAcc(record.second);
+				} else{
+					middleAcc(record.second);
 				}
 			}
-
-			float _smallMean = accumulators::mean(smallAcc);
-			float _bigMean = accumulators::mean(bigAcc);
-			float _distance = accumulators::variance(smallAcc) * accumulators::count(smallAcc) + accumulators::variance(bigAcc) * accumulators::count(bigAcc);
-
-			if(distance > _distance){
-				smallMean = _smallMean;
-				bigMean = _bigMean;
-				distance = _distance;
-			} else{
-				smallDeviation = sqrt(accumulators::variance(smallAcc));
-				bigDeviation = sqrt(accumulators::variance(bigAcc));
-				break;
-			}
 		}
 
-		static float rate = 1;
-		float minLimit = smallMean - rate * (smallDeviation < bigDeviation ? smallDeviation : bigDeviation);
-		int oldSize = candidateRecords.size();
-		candidateRecords.remove_if([&](ContourRecord& record){
-			if(record.second < minLimit){
-				return true;
-			} else{
-				return false;
-			}
-		});
-		int newSize = candidateRecords.size();
-		cout << boost::format("minLimit: %1%, smallDeviation: %2%, bigDeviation: %3%, oldSize: %4%, newSize: %5%") % minLimit % smallDeviation % bigDeviation % oldSize % newSize << endl;
-		if(newSize == oldSize){
+		float _smallMean = accumulators::mean(smallAcc);
+		float _middleMean = accumulators::mean(middleAcc);
+		float _bigMean = accumulators::mean(bigAcc);
+		float _distance = accumulators::variance(smallAcc) * accumulators::count(smallAcc)
+						+ accumulators::variance(middleAcc) * accumulators::count(middleAcc)
+						+ accumulators::variance(bigAcc) * accumulators::count(bigAcc);
+		
+		if(distance > _distance){
+			smallMean = _smallMean;
+			middleMean = _middleMean;
+			bigMean = _bigMean;
+			distance = _distance;
+		} else{
 			break;
 		}
-		rate *= 1.2;
 	}
+	cout << boost::format("Complete K-means. Minimum valid cell size: %1%") % smallMean << endl << endl;
+
+	candidateRecords.remove_if([&](ContourRecord& record){
+		if(record.second < smallMean){
+			return true;
+		} else{
+			return false;
+		}
+	});
 
 	ContourRecord maxCell = *candidateRecords.begin();
 	ContourRecord minCell = maxCell;
