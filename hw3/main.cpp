@@ -2,6 +2,7 @@
 #include <iostream>
 #include <boost/format.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/program_options.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -9,6 +10,7 @@
 using namespace cv;
 using namespace boost;
 using namespace std;
+namespace po = program_options;
 
 typedef list<string> FileList;
 typedef vector<Point2f> Points;
@@ -17,47 +19,40 @@ typedef vector<Points> PointsRecord;
 FileList readDir(string& dir);
 
 int main(int argc, char *argv[]) {
-	CommandLineParser cmd(argc, argv,
-		"{ i | input  |       | Input image directory }"
-		"{ u | undistort |    | Undistort image directory}"
-		"{ r | row    |   12  | Rows of the board}"
-		"{ c | cow    |   12  | Cows of the board}"
-		"{ s | size   |   50  | Size of the square}"
-		"{ h | help   | false | Show this help message }"
-	);
+	string inputDir, undistortDir;
+	int row, col, squareSize;
 
-	if(cmd.get<bool>("help")){
-		cout << "Options:" << endl;
-		cmd.printParams();
-		return EXIT_SUCCESS;
-	}
+	po::options_description desc("Options");
+	desc.add_options()
+		("input,i", po::value<string>(&inputDir), "Input image directory")
+		("undistort,u", po::value<string>(&undistortDir), "Undistort image directory")
+		("row,r", po::value<int>(&row)->default_value(12), "Rows of the board")
+		("col,c", po::value<int>(&col)->default_value(12), "Cows of the board")
+		("size,s", po::value<int>(&squareSize)->default_value(50), "Size of the square")
+		("help,h", "Show this help info");
 
-	string inputDir = cmd.get<string>("input");
-	if(inputDir.empty()){
-		cout << "Please specific input image directory" << endl;
-		cout << "Options:" << endl;
-		cmd.printParams();
+	po::variables_map vm;
+	try{
+		po::store(po::parse_command_line(argc, argv, desc), vm);
+		if (vm.count("help")) {
+			cout << desc << endl;
+			return EXIT_SUCCESS;
+		}
+		po::notify(vm);
+	} catch(po::error& e) {
+		cerr << "Error: " << e.what() << endl << endl;
+		cout << desc << endl;
 		return EXIT_FAILURE;
 	}
 
-	string undistortDir = cmd.get<string>("undistort");
-	if(undistortDir.empty()){
-		cout << "Please specific undistort image directory" << endl;
-		cout << "Options:" << endl;
-		cmd.printParams();
-		return EXIT_FAILURE;
-	}
-
-	Size boardSize(cmd.get<int>("row"), cmd.get<int>("cow"));
-	Size imageSize;
-	float squareSize = cmd.get<float>("size");
+	Size boardSize(row, col);
+	Size imageSize = imread(*readDir(inputDir).begin()).size();
 	namedWindow("Image", WINDOW_NORMAL);
 	
 	PointsRecord imagePoints;
 
 	for(string& fileName : readDir(inputDir)){
 		Mat frame = imread(fileName);
-		imageSize = frame.size();
 		if(frame.empty()){
 			cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
 			continue;
