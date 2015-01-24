@@ -19,6 +19,7 @@ FileList readDir(string& dir);
 int main(int argc, char *argv[]) {
 	CommandLineParser cmd(argc, argv,
 		"{ i | input  |       | Input image directory }"
+		"{ u | undistort |    | Undistort image directory}"
 		"{ r | row    |   12  | Rows of the board}"
 		"{ c | cow    |   12  | Cows of the board}"
 		"{ s | size   |   50  | Size of the square}"
@@ -39,6 +40,14 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
+	string undistortDir = cmd.get<string>("undistort");
+	if(undistortDir.empty()){
+		cout << "Please specific undistort image directory" << endl;
+		cout << "Options:" << endl;
+		cmd.printParams();
+		return EXIT_FAILURE;
+	}
+
 	Size boardSize(cmd.get<int>("row"), cmd.get<int>("cow"));
 	Size imageSize;
 	float squareSize = cmd.get<float>("size");
@@ -47,7 +56,7 @@ int main(int argc, char *argv[]) {
 	PointsRecord imagePoints;
 
 	for(string& fileName : readDir(inputDir)){
-		Mat frame = imread(fileName, CV_LOAD_IMAGE_COLOR);
+		Mat frame = imread(fileName);
 		imageSize = frame.size();
 		if(frame.empty()){
 			cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
@@ -111,6 +120,36 @@ int main(int argc, char *argv[]) {
 	totalAvgErr = sqrt(totalErr / totalPoints);
 	cout << boost::format("totalAvgErr: %1%") % totalAvgErr << endl;
 
+
+	Mat view, rview, map1, map2;
+	initUndistortRectifyMap(
+		cameraMatrix,
+		distCoeffs,
+		Mat(),
+		getOptimalNewCameraMatrix(
+			cameraMatrix,
+			distCoeffs,
+			imageSize,
+			1,
+			imageSize,
+			0
+		),
+		imageSize,
+		CV_16SC2,
+		map1,
+		map2
+	);
+
+	for(string& fileName : readDir(undistortDir)){
+		view = imread(fileName);
+		if (view.empty()){
+			cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
+			continue;
+		}
+		remap(view, rview, map1, map2, INTER_NEAREST);
+		imshow("Image", rview);
+		waitKey();
+	}
 	return EXIT_SUCCESS;
 }
 
