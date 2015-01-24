@@ -1,5 +1,5 @@
 CC			= g++
-CFLAGS		= -std=c++14 -Wall -march=native `pkg-config --cflags opencv`
+CFLAGS		= -std=c++14 -fopenmp -Wall -march=native -O2 `pkg-config --cflags opencv`
 LINKFLAGS	= -lboost_program_options -lboost_filesystem -lboost_system `pkg-config --libs opencv`
 SRCS		= main.cpp
 OBJS		= $(SRCS:.cpp=.o)

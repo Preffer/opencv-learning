@@ -46,12 +46,15 @@ int main(int argc, char *argv[]) {
 	}
 
 	Size boardSize(row, col);
-	Size imageSize = imread(*readDir(inputDir).begin()).size();
+	FileList inputFiles = readDir(inputDir);
+	FileList undistortFiles = readDir(undistortDir);
+	Size imageSize = imread(*inputFiles.begin()).size();
+	Size undistortImageSize = imread(*undistortFiles.begin()).size();
 	namedWindow("Image", WINDOW_NORMAL);
 	
 	PointsRecord imagePoints;
 
-	for(string& fileName : readDir(inputDir)){
+	for(string& fileName : inputFiles){
 		Mat frame = imread(fileName);
 		if(frame.empty()){
 			cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
@@ -135,6 +138,18 @@ int main(int argc, char *argv[]) {
 		map2
 	);
 
+	vector<Point2f> before(4);
+	vector<Point2f> after(4);
+	before[0] = Point2f(0, 0);
+	before[1] = Point2f(undistortImageSize.width-1, 0);
+	before[2] = Point2f(0, undistortImageSize.height-1);
+	before[3] = Point2f(undistortImageSize.width-1, undistortImageSize.height-1);
+	after[0] = Point2f(0, 0);
+	after[1] = Point2f(undistortImageSize.width-1, 0);
+	after[2] = Point2f(undistortImageSize.width * 0.4, undistortImageSize.height-1);
+	after[3] = Point2f(undistortImageSize.width * 0.6, undistortImageSize.height-1);
+	Mat trans = getPerspectiveTransform(before, after);
+
 	for(string& fileName : readDir(undistortDir)){
 		view = imread(fileName);
 		if (view.empty()){
@@ -142,6 +157,7 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 		remap(view, rview, map1, map2, INTER_NEAREST);
+		warpPerspective(view, rview, trans, undistortImageSize);
 		imshow("Image", rview);
 		waitKey();
 	}
