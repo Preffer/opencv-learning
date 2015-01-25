@@ -94,14 +94,14 @@ int main(int argc, char *argv[]) {
 	thread_group findGroup;
 	uint concurrency = thread::hardware_concurrency();
 	for(uint id = 0; id < concurrency; id++){
-		findGroup.create_thread([&]{
-			for(uint i = 2; i < inputFiles.size(); i += concurrency){
+		findGroup.create_thread([&, id]{
+			for(uint i = 2 + id; i < inputFiles.size(); i += concurrency){
 				Mat frame = imread(inputFiles[i]);
 				if(frame.empty()){
 					cerr << boost::format("Failed to read %1%, ignored.") % inputFiles[i] << endl;
 					continue;
 				}
-
+				
 				Points corners;
 				if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
 					Mat greyFrame;
@@ -113,6 +113,8 @@ int main(int argc, char *argv[]) {
 					cout << boost::format("Failed to find chessboard in %1%, ignored.") % inputFiles[i] << endl;
 				}
 			}
+
+			return EXIT_SUCCESS;
 		});
 	}
 
