@@ -1,4 +1,3 @@
-#include <list>
 #include <iostream>
 #include <boost/format.hpp>
 #include <boost/filesystem.hpp>
@@ -50,21 +49,22 @@ int main(int argc, char *argv[]) {
 	Files inputFiles = readDir(inputDir);
 
 	if(inputFiles.size() < 2){
-		cerr << boost::format("No enough images to calib, the min requirement is 2 images, but you give %1% image") % inputFiles.size() << endl;
+		cerr << boost::format("No enough images to calibrate, the minium requirement is 2 images, but you give %1% image") % inputFiles.size() << endl;
 		return EXIT_FAILURE;
 	}
 
 	Size imageSize;
 	PointsTrack imagePoints;
 	thread_group showGroup;
-	//inline first two iteration to read info and check proper settings
+
+	//inline first two iteration to read image info and display them
 	for(uint i = 0; i < 2; i++){
 		showGroup.create_thread([&, i]{
 			Mat frame = imread(inputFiles[i]);
 			imageSize = frame.size();
 			if(frame.empty()){
 				cerr << boost::format("Failed to read %1%, not a vaild image. Abort.") % inputFiles[0] << endl;
-				return EXIT_FAILURE;
+				exit(EXIT_FAILURE);
 			}
 
 			Points corners;
@@ -90,8 +90,8 @@ int main(int argc, char *argv[]) {
 	showGroup.join_all();
 	waitKey(1);
 
+	//for the later iteration, finish ASAP
 	thread_group findGroup;
-	namedWindow("Image", WINDOW_NORMAL);
 	for(uint i = 2; i < inputFiles.size(); i++){
 		findGroup.create_thread([&, i]{
 			Mat frame = imread(inputFiles[i]);
@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
 				cerr << boost::format("Failed to read %1%, ignored.") % inputFiles[i] << endl;
 				return EXIT_FAILURE;
 			}
-		
+
 			Points corners;
 			if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
 				Mat greyFrame;
@@ -107,6 +107,8 @@ int main(int argc, char *argv[]) {
 				cornerSubPix(greyFrame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
 				drawChessboardCorners(frame, boardSize, Mat(corners), true);
 				imagePoints.push_back(corners);
+			} else{
+				cout << boost::format("Failed to find chessboard in %1%, ignored.") % inputFiles[i] << endl;
 			}
 
 			return EXIT_SUCCESS;
@@ -197,13 +199,14 @@ int main(int argc, char *argv[]) {
 	}
 	remap(view, rview, map1, map2, INTER_NEAREST);
 	warpPerspective(view, rview, trans, undistortImageSize);
+	namedWindow("Image", WINDOW_NORMAL);
 	imshow("Image", rview);
 	waitKey();
 
 	return EXIT_SUCCESS;
 }
 
-Files readDir(string& dir){
+Files readDir(string& dir) {
 	filesystem::path p(dir);
 	Files Files;
 
