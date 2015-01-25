@@ -3,6 +3,7 @@
 #include <boost/format.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
+#include <boost/thread/thread.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -12,20 +13,20 @@ using namespace boost;
 using namespace std;
 namespace po = program_options;
 
-typedef list<string> FileList;
+typedef vector<string> Files;
 typedef vector<Point2f> Points;
-typedef vector<Points> PointsRecord;
+typedef vector<Points> PointsTrack;
 
-FileList readDir(string& dir);
+Files readDir(string& dir);
 
 int main(int argc, char *argv[]) {
-	string inputDir, undistortDir;
+	string inputDir, perspectFile;
 	int row, col, squareSize;
 
 	po::options_description desc("Options");
 	desc.add_options()
-		("input,i", po::value<string>(&inputDir), "Input image directory")
-		("undistort,u", po::value<string>(&undistortDir), "Undistort image directory")
+		("input,i", po::value<string>(&inputDir), "Input images directory")
+		("perspect,p", po::value<string>(&perspectFile), "Image for perspective transformation")
 		("row,r", po::value<int>(&row)->default_value(12), "Rows of the board")
 		("col,c", po::value<int>(&col)->default_value(12), "Cows of the board")
 		("size,s", po::value<int>(&squareSize)->default_value(50), "Size of the square")
@@ -40,41 +41,79 @@ int main(int argc, char *argv[]) {
 		}
 		po::notify(vm);
 	} catch(po::error& e) {
-		cerr << "Error: " << e.what() << endl << endl;
+		cerr << boost::format("Error: %1%") % e.what() << endl << endl;
 		cout << desc << endl;
 		return EXIT_FAILURE;
 	}
 
 	Size boardSize(row, col);
-	FileList inputFiles = readDir(inputDir);
-	FileList undistortFiles = readDir(undistortDir);
-	Size imageSize = imread(*inputFiles.begin()).size();
-	Size undistortImageSize = imread(*undistortFiles.begin()).size();
-	namedWindow("Image", WINDOW_NORMAL);
-	
-	PointsRecord imagePoints;
+	Files inputFiles = readDir(inputDir);
 
-	for(string& fileName : inputFiles){
-		Mat frame = imread(fileName);
-		if(frame.empty()){
-			cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
-			continue;
-		}
-		
-		Points corners;
-		bool found = findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE);
-
-		if(found){
-			Mat greyFrame;
-			cvtColor(frame, greyFrame, COLOR_BGR2GRAY);
-			cornerSubPix(greyFrame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
-			drawChessboardCorners(frame, boardSize, Mat(corners), true);
-			imagePoints.push_back(corners);
-			imshow("Image", frame);
-			waitKey(10);
-		}
+	if(inputFiles.size() < 2){
+		cerr << boost::format("No enough images to calib, the min requirement is 2 images, but you give %1% image") % inputFiles.size() << endl;
+		return EXIT_FAILURE;
 	}
 
+	Size imageSize;
+	PointsTrack imagePoints;
+	thread_group showGroup;
+	//inline first two iteration to read info and check proper settings
+	for(uint i = 0; i < 2; i++){
+		showGroup.create_thread([&, i]{
+			Mat frame = imread(inputFiles[i]);
+			imageSize = frame.size();
+			if(frame.empty()){
+				cerr << boost::format("Failed to read %1%, not a vaild image. Abort.") % inputFiles[0] << endl;
+				return EXIT_FAILURE;
+			}
+
+			Points corners;
+			if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
+				Mat greyFrame;
+				cvtColor(frame, greyFrame, COLOR_BGR2GRAY);
+				cornerSubPix(greyFrame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
+				drawChessboardCorners(frame, boardSize, Mat(corners), true);
+				imagePoints.push_back(corners);
+				
+				string title = "Detection - " + inputFiles[i];
+				namedWindow(title, WINDOW_NORMAL);
+				imshow(title, frame);
+			} else{
+				cerr << boost::format("Failed to find chessboard in %1%, the settings may not proper.") % inputFiles[0] << endl;
+				cout << boost::format("Current settings: Chessboard Size = %1%") % boardSize << endl;
+				exit(EXIT_FAILURE);
+			}
+
+			return EXIT_SUCCESS;
+		});
+	}
+	showGroup.join_all();
+	waitKey(1);
+
+	thread_group findGroup;
+	namedWindow("Image", WINDOW_NORMAL);
+	for(uint i = 2; i < inputFiles.size(); i++){
+		findGroup.create_thread([&, i]{
+			Mat frame = imread(inputFiles[i]);
+			if(frame.empty()){
+				cerr << boost::format("Failed to read %1%, ignored.") % inputFiles[i] << endl;
+				return EXIT_FAILURE;
+			}
+		
+			Points corners;
+			if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
+				Mat greyFrame;
+				cvtColor(frame, greyFrame, COLOR_BGR2GRAY);
+				cornerSubPix(greyFrame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
+				drawChessboardCorners(frame, boardSize, Mat(corners), true);
+				imagePoints.push_back(corners);
+			}
+
+			return EXIT_SUCCESS;
+		});
+	}
+
+	findGroup.join_all();
 	vector<Mat> rvecs, tvecs;
 	vector<float> reprojErrs;
 	Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
@@ -101,7 +140,7 @@ int main(int argc, char *argv[]) {
 	
 	double totalAvgErr;
 	
-	vector < Point2f > imagePoints2;
+	Points imagePoints2;
 	int totalPoints = 0;
 	double totalErr = 0, err;
 	reprojErrs.resize(objectPoints.size());
@@ -120,6 +159,8 @@ int main(int argc, char *argv[]) {
 
 
 	Mat view, rview, map1, map2;
+	view = imread(perspectFile);
+	Size undistortImageSize = view.size();
 	initUndistortRectifyMap(
 		cameraMatrix,
 		distCoeffs,
@@ -150,31 +191,29 @@ int main(int argc, char *argv[]) {
 	after[3] = Point2f(undistortImageSize.width * 0.6, undistortImageSize.height-1);
 	Mat trans = getPerspectiveTransform(before, after);
 
-	for(string& fileName : readDir(undistortDir)){
-		view = imread(fileName);
-		if (view.empty()){
-			cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
-			continue;
-		}
-		remap(view, rview, map1, map2, INTER_NEAREST);
-		warpPerspective(view, rview, trans, undistortImageSize);
-		imshow("Image", rview);
-		waitKey();
+	if (view.empty()){
+		cerr << boost::format("Failed to read %1%.") % perspectFile << endl;
+		return EXIT_FAILURE;
 	}
+	remap(view, rview, map1, map2, INTER_NEAREST);
+	warpPerspective(view, rview, trans, undistortImageSize);
+	imshow("Image", rview);
+	waitKey();
+
 	return EXIT_SUCCESS;
 }
 
-FileList readDir(string& dir){
+Files readDir(string& dir){
 	filesystem::path p(dir);
-	FileList fileList;
+	Files Files;
 
 	try {
 		for_each(filesystem::directory_iterator(p), filesystem::directory_iterator(), [&](auto& fd){
-			fileList.push_back(fd.path().string());
+			Files.push_back(fd.path().string());
 		});
 	} catch(const filesystem::filesystem_error& ex) {
 		cerr << ex.what() << endl;
 	}
 
-	return fileList;
+	return Files;
 }
