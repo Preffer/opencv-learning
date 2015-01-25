@@ -59,11 +59,14 @@ int main(int argc, char *argv[]) {
 
 	//inline first two iteration to read image info and display them
 	for(uint i = 0; i < 2; i++){
-		showGroup.create_thread([&, i]{
-			Mat frame = imread(inputFiles[i]);
+		string fileName = inputFiles.back();
+		inputFiles.pop_back();
+
+		showGroup.create_thread([&, fileName]{
+			Mat frame = imread(fileName);
 			imageSize = frame.size();
 			if(frame.empty()){
-				cerr << boost::format("Failed to read %1%, not a vaild image. Abort.") % inputFiles[0] << endl;
+				cerr << boost::format("Failed to read %1%, not a vaild image. Abort.") % fileName << endl;
 				exit(EXIT_FAILURE);
 			}
 
@@ -75,11 +78,11 @@ int main(int argc, char *argv[]) {
 				drawChessboardCorners(frame, boardSize, Mat(corners), true);
 				imagePoints.push_back(corners);
 				
-				string title = "Detection - " + inputFiles[i];
+				string title = "Detection - " + fileName;
 				namedWindow(title, WINDOW_NORMAL);
 				imshow(title, frame);
 			} else{
-				cerr << boost::format("Failed to find chessboard in %1%, the settings may not proper.") % inputFiles[0] << endl;
+				cerr << boost::format("Failed to find chessboard in %1%, the settings may not proper.") % fileName << endl;
 				cout << boost::format("Current settings: Chessboard Size = %1%") % boardSize << endl;
 				exit(EXIT_FAILURE);
 			}
@@ -92,27 +95,40 @@ int main(int argc, char *argv[]) {
 
 	//for the later iteration, finish ASAP
 	thread_group findGroup;
-	for(uint i = 2; i < inputFiles.size(); i++){
-		findGroup.create_thread([&, i]{
-			Mat frame = imread(inputFiles[i], CV_LOAD_IMAGE_GRAYSCALE);
-			if(frame.empty()){
-				cerr << boost::format("Failed to read %1%, ignored.") % inputFiles[i] << endl;
-				return EXIT_FAILURE;
-			}
+	uint concurrency = thread::hardware_concurrency();
+	mutex mtx;
+	for(uint id = 0; id < concurrency; id++){
+		findGroup.create_thread([&]{
+			while(true){
+				mtx.lock();
+				if(!inputFiles.size()){
+					mtx.unlock();
+					break;
+				}
+				string fileName = inputFiles.back();
+				inputFiles.pop_back();
+				mtx.unlock();
 
-			Points corners;
-			if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
-				cornerSubPix(frame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
-				imagePoints.push_back(corners);
-			} else{
-				cout << boost::format("Failed to find chessboard in %1%, ignored.") % inputFiles[i] << endl;
+				Mat frame = imread(fileName, CV_LOAD_IMAGE_GRAYSCALE);
+				if(frame.empty()){
+					cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
+					return EXIT_FAILURE;
+				}
+
+				Points corners;
+				if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
+					cornerSubPix(frame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
+					imagePoints.push_back(corners);
+				} else{
+					cout << boost::format("Failed to find chessboard in %1%, ignored.") % fileName << endl;
+				}
 			}
 
 			return EXIT_SUCCESS;
 		});
 	}
-
 	findGroup.join_all();
+
 	vector<Mat> rvecs, tvecs;
 	vector<float> reprojErrs;
 	Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
@@ -205,15 +221,15 @@ int main(int argc, char *argv[]) {
 
 Files readDir(string& dir) {
 	filesystem::path p(dir);
-	Files Files;
+	Files files;
 
 	try {
-		for_each(filesystem::directory_iterator(p), filesystem::directory_iterator(), [&](auto& fd){
-			Files.push_back(fd.path().string());
-		});
+		for(auto it = filesystem::directory_iterator(p); it != filesystem::directory_iterator(); it++){
+			files.push_back(it->path().string());
+		}
 	} catch(const filesystem::filesystem_error& ex) {
 		cerr << ex.what() << endl;
 	}
 
-	return Files;
+	return files;
 }
