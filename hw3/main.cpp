@@ -67,10 +67,10 @@ int main(int argc, char *argv[]) {
 				exit(EXIT_FAILURE);
 			}
 
+			Mat greyFrame;
+			cvtColor(frame, greyFrame, COLOR_BGR2GRAY);
 			Points corners;
-			if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
-				Mat greyFrame;
-				cvtColor(frame, greyFrame, COLOR_BGR2GRAY);
+			if(findChessboardCorners(greyFrame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
 				cornerSubPix(greyFrame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
 				drawChessboardCorners(frame, boardSize, Mat(corners), true);
 				imagePoints.push_back(corners);
@@ -94,7 +94,7 @@ int main(int argc, char *argv[]) {
 	thread_group findGroup;
 	for(uint i = 2; i < inputFiles.size(); i++){
 		findGroup.create_thread([&, i]{
-			Mat frame = imread(inputFiles[i]);
+			Mat frame = imread(inputFiles[i], CV_LOAD_IMAGE_GRAYSCALE);
 			if(frame.empty()){
 				cerr << boost::format("Failed to read %1%, ignored.") % inputFiles[i] << endl;
 				return EXIT_FAILURE;
@@ -102,10 +102,7 @@ int main(int argc, char *argv[]) {
 
 			Points corners;
 			if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
-				Mat greyFrame;
-				cvtColor(frame, greyFrame, COLOR_BGR2GRAY);
-				cornerSubPix(greyFrame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
-				drawChessboardCorners(frame, boardSize, Mat(corners), true);
+				cornerSubPix(frame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
 				imagePoints.push_back(corners);
 			} else{
 				cout << boost::format("Failed to find chessboard in %1%, ignored.") % inputFiles[i] << endl;
