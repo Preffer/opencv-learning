@@ -14,7 +14,9 @@ namespace po = program_options;
 
 typedef vector<string> Files;
 typedef vector<Point2f> Points;
-typedef vector<Points> PointsTrack;
+typedef vector<Points> ImagePoints;
+typedef vector<Point3f> Point3fs;
+typedef vector<Point3fs> ObjectPoints;
 
 Files readDir(string& dir);
 
@@ -38,6 +40,14 @@ int main(int argc, char *argv[]) {
 			cout << desc << endl;
 			return EXIT_SUCCESS;
 		}
+		if(!vm.count("input")){
+			cout << "You need to specific input images directory" << endl;
+			return EXIT_FAILURE;
+		}
+		if(!vm.count("perspect")){
+			cout << "You need to specific image for perspective transformation" << endl;
+			return EXIT_FAILURE;
+		}
 		po::notify(vm);
 	} catch(po::error& e) {
 		cerr << boost::format("Error: %1%") % e.what() << endl << endl;
@@ -54,7 +64,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	Size imageSize;
-	PointsTrack imagePoints;
+	ImagePoints imagePoints;
 	thread_group showGroup;
 
 	//inline first two iteration to read image info and display them
@@ -129,49 +139,26 @@ int main(int argc, char *argv[]) {
 	}
 	findGroup.join_all();
 
-	vector<Mat> rvecs, tvecs;
-	vector<float> reprojErrs;
-	Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
-	cameraMatrix.at <double>(0, 0) = 1.0;
-	cout << "OK" << endl;
-	Mat distCoeffs = Mat::zeros(8, 1, CV_64F);
-	
-	cout << "OK" << endl;
-	vector < vector < Point3f > >  objectPoints(1);
-	objectPoints[0].clear();
-
+	ObjectPoints objectPoints(1);
 	for (int i = 0; i < boardSize.height; i++) {
 		for (int j = 0; j < boardSize.width; j++){
 			objectPoints[0].push_back(Point3f(float(j * squareSize), float(i * squareSize), 0));
-		}		
+		}
 	}
 	objectPoints.resize(imagePoints.size(), objectPoints[0]);
 
-	double rms = calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix, distCoeffs, rvecs, tvecs, CV_CALIB_FIX_PRINCIPAL_POINT | CV_CALIB_FIX_ASPECT_RATIO | CV_CALIB_ZERO_TANGENT_DIST | CV_CALIB_FIX_K4 | CV_CALIB_FIX_K5);
-	cout << boost::format("Re-projection error reported by calibrateCamera: %1%") % rms << endl;
+	Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
+	Mat distCoeffs = Mat::zeros(8, 1, CV_64F);
+	vector<Mat> rvecs, tvecs;
+	calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix, distCoeffs, rvecs, tvecs, CV_CALIB_FIX_PRINCIPAL_POINT | CV_CALIB_FIX_ASPECT_RATIO | CV_CALIB_ZERO_TANGENT_DIST | CV_CALIB_FIX_K4 | CV_CALIB_FIX_K5);
 
-	bool ok = checkRange(cameraMatrix) && checkRange(distCoeffs);
-	cout << boost::format("OK? %1%") % ok << endl;
-	
-	double totalAvgErr;
-	
-	Points imagePoints2;
-	int totalPoints = 0;
-	double totalErr = 0, err;
-	reprojErrs.resize(objectPoints.size());
-
-	for (int i = 0; i < (int)objectPoints.size(); ++i) {
-		projectPoints(Mat(objectPoints[i]), rvecs[i], tvecs[i], cameraMatrix, distCoeffs, imagePoints2);
-		err = norm(Mat(imagePoints[i]), Mat(imagePoints2), CV_L2);
-
-		int n = (int)objectPoints[i].size();
-		reprojErrs[i] = (float)std::sqrt(err * err / n);
-		totalErr += err * err;
-		totalPoints += n;
+	if(checkRange(cameraMatrix) && checkRange(distCoeffs)){
+		cout << "CameraMatrix:\n" << cameraMatrix << endl;
+		cout << "DistCoeffs:\n" << distCoeffs << endl;
+	} else{
+		cerr << "Calibration give invalid output. Calibrate failed." << endl;
+		return EXIT_FAILURE;
 	}
-	totalAvgErr = sqrt(totalErr / totalPoints);
-	cout << boost::format("totalAvgErr: %1%") % totalAvgErr << endl;
-
 
 	Mat view, rview, map1, map2;
 	view = imread(perspectFile);
