@@ -21,16 +21,18 @@ typedef vector<Point3fs> ObjectPoints;
 Files readDir(string& dir);
 
 int main(int argc, char *argv[]) {
-	string inputDir, perspectFile;
+	string inputDir, transformFile;
 	int row, col, squareSize;
+	uint displayAmount;
 
 	po::options_description desc("Options");
 	desc.add_options()
 		("input,i", po::value<string>(&inputDir), "Input images directory")
-		("perspect,p", po::value<string>(&perspectFile), "Image for perspective transformation")
+		("transform,t", po::value<string>(&transformFile), "Image for perspective transformation")
 		("row,r", po::value<int>(&row)->default_value(12), "Rows of the board")
 		("col,c", po::value<int>(&col)->default_value(12), "Cows of the board")
 		("size,s", po::value<int>(&squareSize)->default_value(50), "Size of the square")
+		("display,d", po::value<uint>(&displayAmount)->default_value(2), "Amount of images to display")
 		("help,h", "Show this help info");
 
 	po::variables_map vm;
@@ -44,7 +46,7 @@ int main(int argc, char *argv[]) {
 			cout << "You need to specific input images directory" << endl;
 			return EXIT_FAILURE;
 		}
-		if(!vm.count("perspect")){
+		if(!vm.count("transform")){
 			cout << "You need to specific image for perspective transformation" << endl;
 			return EXIT_FAILURE;
 		}
@@ -57,18 +59,25 @@ int main(int argc, char *argv[]) {
 
 	Size boardSize(row, col);
 	Files inputFiles = readDir(inputDir);
+	Files _inputFiles = inputFiles;
 
-	if(inputFiles.size() < 2){
-		cerr << boost::format("No enough images to calibrate, the minium requirement is 2 images, but you give %1% image") % inputFiles.size() << endl;
+	if(inputFiles.size() < displayAmount){
+		cerr << boost::format("No enough images to calibrate, you request to display is %1% images, but you only give %2% images") % displayAmount % inputFiles.size() << endl;
+		return EXIT_FAILURE;
+	}
+
+	Mat transform;
+	transform = imread(transformFile);
+	if(transform.empty()){
+		cerr << boost::format("Failed to read %1% for perspective transformation") % transformFile << endl;
 		return EXIT_FAILURE;
 	}
 
 	Size imageSize;
 	ImagePoints imagePoints;
+	//inline first few iteration to read image info and display them
 	thread_group showGroup;
-
-	//inline first two iteration to read image info and display them
-	for(uint i = 0; i < 2; i++){
+	for(uint i = 0; i < displayAmount; i++){
 		string fileName = inputFiles.back();
 		inputFiles.pop_back();
 
@@ -160,47 +169,44 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	Mat view, rview, map1, map2;
-	view = imread(perspectFile);
-	Size undistortImageSize = view.size();
-	initUndistortRectifyMap(
-		cameraMatrix,
-		distCoeffs,
-		Mat(),
-		getOptimalNewCameraMatrix(
-			cameraMatrix,
-			distCoeffs,
-			imageSize,
-			1,
-			imageSize,
-			0
-		),
-		imageSize,
-		CV_16SC2,
-		map1,
-		map2
-	);
+	Mat raw, undistorted, map1, map2;
+	Mat newCameraMatrix = getOptimalNewCameraMatrix(cameraMatrix, distCoeffs, imageSize, 1);
+	initUndistortRectifyMap(cameraMatrix, distCoeffs, Mat(), newCameraMatrix, imageSize, CV_16SC2, map1, map2);
+
+	//reload inputFiles, show undistorted images
+	inputFiles = _inputFiles;
+	for(uint i = 0; i < displayAmount; i++){
+		string fileName = inputFiles.back();
+		inputFiles.pop_back();
+
+		raw = imread(fileName);
+		remap(raw, undistorted, map1, map2, INTER_NEAREST);
+		
+		string title = "Undistorted - " + fileName;
+		namedWindow(title, WINDOW_NORMAL);
+		imshow(title, undistorted);
+	}
+	waitKey(1);
+
+	//perspective
+	Mat perspective;
+	Size transSize = transform.size();
 
 	vector<Point2f> before(4);
 	vector<Point2f> after(4);
 	before[0] = Point2f(0, 0);
-	before[1] = Point2f(undistortImageSize.width-1, 0);
-	before[2] = Point2f(0, undistortImageSize.height-1);
-	before[3] = Point2f(undistortImageSize.width-1, undistortImageSize.height-1);
+	before[1] = Point2f(transSize.width-1, 0);
+	before[2] = Point2f(0, transSize.height-1);
+	before[3] = Point2f(transSize.width-1, transSize.height-1);
 	after[0] = Point2f(0, 0);
-	after[1] = Point2f(undistortImageSize.width-1, 0);
-	after[2] = Point2f(undistortImageSize.width * 0.4, undistortImageSize.height-1);
-	after[3] = Point2f(undistortImageSize.width * 0.6, undistortImageSize.height-1);
+	after[1] = Point2f(transSize.width-1, 0);
+	after[2] = Point2f(transSize.width * 0.4, transSize.height-1);
+	after[3] = Point2f(transSize.width * 0.6, transSize.height-1);
 	Mat trans = getPerspectiveTransform(before, after);
 
-	if (view.empty()){
-		cerr << boost::format("Failed to read %1%.") % perspectFile << endl;
-		return EXIT_FAILURE;
-	}
-	remap(view, rview, map1, map2, INTER_NEAREST);
-	warpPerspective(view, rview, trans, undistortImageSize);
-	namedWindow("Image", WINDOW_NORMAL);
-	imshow("Image", rview);
+	warpPerspective(transform, perspective, trans, transSize);
+	namedWindow("Perspective", WINDOW_NORMAL);
+	imshow("Perspective", perspective);
 	waitKey();
 
 	return EXIT_SUCCESS;
