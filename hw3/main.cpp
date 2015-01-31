@@ -190,11 +190,11 @@ int main(int argc, char *argv[]) {
 			cout << "\t投影原点X坐标: " << cameraMatrix.at<double>(0, 2) << endl;
 			cout << "\t投影原点Y坐标: " << cameraMatrix.at<double>(1, 2) << endl;
 			cout << "畸变参数: " << endl;
-			cout << "\tk1: " << distCoeffs.at<double>(0, 0) << endl;
-			cout << "\tk2: " << distCoeffs.at<double>(0, 1) << endl;
-			cout << "\tp1: " << distCoeffs.at<double>(0, 2) << endl;
-			cout << "\tp2: " << distCoeffs.at<double>(0, 3) << endl;
-			cout << "\tk3: " << distCoeffs.at<double>(0, 4) << endl;
+			cout << "\t径向畸变k1: " << distCoeffs.at<double>(0, 0) << endl;
+			cout << "\t径向畸变k2: " << distCoeffs.at<double>(0, 1) << endl;
+			cout << "\t切向畸变p1: " << distCoeffs.at<double>(0, 2) << endl;
+			cout << "\t切向畸变p2: " << distCoeffs.at<double>(0, 3) << endl;
+			cout << "\t径向畸变k3: " << distCoeffs.at<double>(0, 4) << endl;
 		} else{
 			cerr << "Calibration give invalid output, failed." << endl;
 			return EXIT_FAILURE;
