@@ -1,3 +1,4 @@
+#include <ctime>
 #include <iostream>
 #include <algorithm>
 #include <boost/format.hpp>
@@ -10,7 +11,7 @@ using namespace boost;
 using namespace filesystem;
 using namespace cv;
 
-typedef tuple<Mat, int, string> Sample;
+typedef tuple<Mat, int> Sample;
 
 int main(int argc, char *argv[]) {
 	CommandLineParser cmd(argc, argv,
@@ -29,14 +30,15 @@ int main(int argc, char *argv[]) {
 
 	uint numTestCase = cmd.get<int>("test");
 	vector<Sample> samples;
+	map<int, string> names;
 
 	try {
 		int index = 0;
 		for(auto it = directory_iterator(inputDir); it != directory_iterator(); it++){
 			if(is_directory(it->path())){
-				string name = it->path().leaf().string();
+				names[index] = it->path().leaf().string();
 				for(auto img = directory_iterator(it->path().string()); img != directory_iterator(); img++){
-					samples.push_back(Sample(imread(img->path().string(), CV_LOAD_IMAGE_GRAYSCALE), index, name));
+					samples.push_back(Sample(imread(img->path().string(), CV_LOAD_IMAGE_GRAYSCALE), index));
 				}
 				index++;
 			}
@@ -49,51 +51,46 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	if(samples.size() <= numTestCase) {
-		cerr << boost::format("No enough photos, you request %1% test cases, but you only give %2% photos") % numTestCase % samples.size() << endl;
+	if(names.size() <= numTestCase) {
+		cerr << boost::format("No enough photos, you request %1% test cases, but the photos only have %2% labels") % numTestCase % names.size() << endl;
 		return EXIT_FAILURE;
 	}
 
-	shuffle(samples.begin(), samples.end(), default_random_engine());
+	shuffle(samples.begin(), samples.end(), default_random_engine(time(NULL)));
 
 	vector<Mat> images, testImages;
 	vector<int> labels, testLabels;
-	vector<string> names, testNames;
 
-	for(int i = samples.size() - 1; i >= 0; i--){
-		if(i < 10){
+	uint sampleSize = samples.size();
+	for(uint i = 0; i < sampleSize; i++){
+		if(i < numTestCase){
 			testImages.push_back(get<0>(samples[i]));
 			testLabels.push_back(get<1>(samples[i]));
-			testNames.push_back(get<2>(samples[i]));
 		} else{
 			images.push_back(get<0>(samples[i]));
 			labels.push_back(get<1>(samples[i]));
-			names.push_back(get<2>(samples[i]));
 		}
 	}
 
-	// This here is a full PCA, if you just want to keep
-	// 10 principal components (read Eigenfaces), then call
-	// the factory method like this:
-	//
-	//      cv::createEigenFaceRecognizer(10);
-	//
-	// If you want to create a FaceRecognizer with a
-	// confidennce threshold, call it with:
-	//
-	//      cv::createEigenFaceRecognizer(10, 123.0);
-	//
-	Ptr<FaceRecognizer> model = createEigenFaceRecognizer(50);
+	//since the performance is enough, set a high dimension
+	Ptr<FaceRecognizer> model = createEigenFaceRecognizer(100);
 	model->train(images, labels);
-	model->save("model.xml");
-	cout << "Model has been saved to model.xml" << endl;
 
 	for(uint i = 0; i < numTestCase; i++){
-		int predictedLabel;
+		int predicate;
 		double confidence;
-		model->predict(testImages[i], predictedLabel, confidence);
-		cout << boost::format("Predicted class = %1%, Actual class = %2%, Confidence = %3%") % predictedLabel % testLabels[i] % confidence << endl;
+		model->predict(testImages[i], predicate, confidence);
+		cout << boost::format("Predicate: %1%, Actual: %2%, Confidence: %3%") % names[predicate] % names[testLabels[i]] % confidence << endl;
+
+		string text = (boost::format("%1%/%2%") % names[predicate] % names[testLabels[i]]).str();
+		Point pos(testImages[i].size().width * 0.02, testImages[i].size().height * 0.98);
+		putText(testImages[i], text, pos,  FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255, 255, 255));
+
+		string title = "Test Case - " + to_string(i);
+		namedWindow(title, WINDOW_NORMAL);
+		imshow(title, testImages[i]);
 	}
 
+	waitKey();
 	return EXIT_SUCCESS;
 }
