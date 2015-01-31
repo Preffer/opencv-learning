@@ -29,9 +29,9 @@ int main(int argc, char *argv[]) {
 
 	po::options_description desc("Options");
 	desc.add_options()
-		("input,i", po::value<string>(&inputDir), "Input images directory")
+		("image,i", po::value<string>(&inputDir), "Images directory")
 		("transform,t", po::value<string>(&transformFile), "Image for perspective transformation")
-		("xml,x", po::value<string>(&xmlFile)->default_value("Calibration.xml"), "Xml file that have calibration matrix")
+		("xml,x", po::value<string>(&xmlFile)->default_value("Calibration.xml"), "Xml file that contain calibration matrix")
 		("row,r", po::value<int>(&row)->default_value(12), "Rows of the board")
 		("col,c", po::value<int>(&col)->default_value(12), "Cows of the board")
 		("size,s", po::value<int>(&squareSize)->default_value(50), "Size of the square")
@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
 			cout << desc << endl;
 			return EXIT_SUCCESS;
 		}
-		if(!vm.count("input")){
+		if(!vm.count("image")){
 			cout << "You need to specific input images directory" << endl;
 			return EXIT_FAILURE;
 		}
@@ -61,6 +61,16 @@ int main(int argc, char *argv[]) {
 	}
 
 	Size boardSize(row, col);
+	cout << boost::format(
+		"Parameters:\n"
+		"\tImages directory: %1%\n"
+		"\tTransform image: %2%\n"
+		"\tXml file: %3%\n"
+		"\tChessboard size: %4%\n"
+		"\tSquare size: %5%\n"
+		"\tDisplay: %6% images\n"
+	) % inputDir % transformFile % xmlFile % boardSize % squareSize % displayAmount << endl;
+
 	Files inputFiles = readDir(inputDir);
 	Files _inputFiles = inputFiles;
 
@@ -79,7 +89,6 @@ int main(int argc, char *argv[]) {
 
 	Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
 	Mat distCoeffs = Mat::zeros(8, 1, CV_64F);
-
 	//try to read from xmlFile
 	{
 		FileStorage fs(xmlFile, FileStorage::READ);
@@ -100,7 +109,7 @@ int main(int argc, char *argv[]) {
 			showGroup.create_thread([&, fileName]{
 				Mat frame = imread(fileName);
 				if(frame.empty()){
-					cerr << boost::format("Failed to read %1%, not a vaild image. Abort.") % fileName << endl;
+					cerr << boost::format("Failed to read %1%, not a vaild image, Abort.") % fileName << endl;
 					exit(EXIT_FAILURE);
 				}
 
@@ -116,8 +125,7 @@ int main(int argc, char *argv[]) {
 					namedWindow(title, WINDOW_NORMAL);
 					imshow(title, frame);
 				} else{
-					cerr << boost::format("Failed to find chessboard in %1%, the settings may not proper.") % fileName << endl;
-					cout << boost::format("Current settings: Chessboard Size = %1%") % boardSize << endl;
+					cerr << boost::format("Failed to find chessboard in %1%, Abort. The parameters may not proper.") % fileName << endl;
 					exit(EXIT_FAILURE);
 				}
 
@@ -146,7 +154,7 @@ int main(int argc, char *argv[]) {
 					Mat frame = imread(fileName, CV_LOAD_IMAGE_GRAYSCALE);
 					if(frame.empty()){
 						cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
-						return EXIT_FAILURE;
+						continue;
 					}
 
 					Points corners;
@@ -154,7 +162,7 @@ int main(int argc, char *argv[]) {
 						cornerSubPix(frame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
 						imagePoints.push_back(corners);
 					} else{
-						cout << boost::format("Failed to find chessboard in %1%, ignored.") % fileName << endl;
+						cerr << boost::format("Failed to find chessboard in %1%, ignored.") % fileName << endl;
 					}
 				}
 
@@ -173,13 +181,22 @@ int main(int argc, char *argv[]) {
 		objectPoints.resize(imagePoints.size(), objectPoints[0]);
 
 		vector<Mat> rvecs, tvecs;
-		calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix, distCoeffs, rvecs, tvecs, CV_CALIB_FIX_PRINCIPAL_POINT | CV_CALIB_FIX_ASPECT_RATIO | CV_CALIB_ZERO_TANGENT_DIST | CV_CALIB_FIX_K4 | CV_CALIB_FIX_K5);
+		calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix, distCoeffs, rvecs, tvecs, CV_CALIB_FIX_PRINCIPAL_POINT);
 
 		if(checkRange(cameraMatrix) && checkRange(distCoeffs)){
-			cout << "CameraMatrix:\n" << cameraMatrix << endl;
-			cout << "DistCoeffs:\n" << distCoeffs << endl;
+			cout << "相机内参: " << endl;
+			cout << "\tX方向焦距: " << cameraMatrix.at<double>(0, 0) << endl;
+			cout << "\tY方向焦距: " << cameraMatrix.at<double>(1, 1) << endl;
+			cout << "\t投影原点X坐标: " << cameraMatrix.at<double>(0, 2) << endl;
+			cout << "\t投影原点Y坐标: " << cameraMatrix.at<double>(1, 2) << endl;
+			cout << "畸变参数: " << endl;
+			cout << "\tk1: " << distCoeffs.at<double>(0, 0) << endl;
+			cout << "\tk2: " << distCoeffs.at<double>(0, 1) << endl;
+			cout << "\tp1: " << distCoeffs.at<double>(0, 2) << endl;
+			cout << "\tp2: " << distCoeffs.at<double>(0, 3) << endl;
+			cout << "\tk3: " << distCoeffs.at<double>(0, 4) << endl;
 		} else{
-			cerr << "Calibration give invalid output. Calibrate failed." << endl;
+			cerr << "Calibration give invalid output, failed." << endl;
 			return EXIT_FAILURE;
 		}
 
@@ -191,7 +208,7 @@ int main(int argc, char *argv[]) {
 		cout << "Successfully load matrix from " << xmlFile << endl;
 	}
 
-	//rshow undistorted images
+	//show undistorted images
 	Mat raw, undistorted, map1, map2;
 	Mat newCameraMatrix = getOptimalNewCameraMatrix(cameraMatrix, distCoeffs, imageSize, 1);
 	initUndistortRectifyMap(cameraMatrix, distCoeffs, Mat(), newCameraMatrix, imageSize, CV_16SC2, map1, map2);
@@ -216,6 +233,7 @@ int main(int argc, char *argv[]) {
 	createTrackbar("Height", "Perspective", &height, 100, heightChanged, &transform);
 	doTransform(height, &transform);
 
+	cout << endl << boost::format("Interactive transforming %1%...") % transformFile << endl;
 	cout << "You can press 'q' to quit, and any other key to save an snapshot." << endl;
 	while(true){
 		char keycode = waitKey();
@@ -239,6 +257,7 @@ Files readDir(string& dir) {
 		}
 	} catch(const filesystem::filesystem_error& ex) {
 		cerr << ex.what() << endl;
+		exit(EXIT_FAILURE);
 	}
 
 	return files;
