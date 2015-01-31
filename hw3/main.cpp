@@ -23,7 +23,7 @@ void heightChanged(int pos, void* data);
 void doTransform(int pos, void* data, bool save = false);
 
 int main(int argc, char *argv[]) {
-	string inputDir, transformFile;
+	string inputDir, transformFile, xmlFile;
 	int row, col, squareSize;
 	uint displayAmount;
 
@@ -31,6 +31,7 @@ int main(int argc, char *argv[]) {
 	desc.add_options()
 		("input,i", po::value<string>(&inputDir), "Input images directory")
 		("transform,t", po::value<string>(&transformFile), "Image for perspective transformation")
+		("xml,x", po::value<string>(&xmlFile)->default_value("Calibration.xml"), "Xml file that have calibration matrix")
 		("row,r", po::value<int>(&row)->default_value(12), "Rows of the board")
 		("col,c", po::value<int>(&col)->default_value(12), "Cows of the board")
 		("size,s", po::value<int>(&squareSize)->default_value(50), "Size of the square")
@@ -67,6 +68,7 @@ int main(int argc, char *argv[]) {
 		cerr << boost::format("No enough images to calibrate, you request to display is %1% images, but you only give %2% images") % displayAmount % inputFiles.size() << endl;
 		return EXIT_FAILURE;
 	}
+	Size imageSize = imread(inputFiles.back()).size();
 
 	Mat transform;
 	transform = imread(transformFile);
@@ -75,102 +77,118 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	Size imageSize;
-	ImagePoints imagePoints;
-
-	//inline first few iteration to read image info and display them
-	thread_group showGroup;
-	for(uint i = 0; i < displayAmount; i++){
-		string fileName = inputFiles.back();
-		inputFiles.pop_back();
-
-		showGroup.create_thread([&, fileName]{
-			Mat frame = imread(fileName);
-			imageSize = frame.size();
-			if(frame.empty()){
-				cerr << boost::format("Failed to read %1%, not a vaild image. Abort.") % fileName << endl;
-				exit(EXIT_FAILURE);
-			}
-
-			Mat greyFrame;
-			cvtColor(frame, greyFrame, COLOR_BGR2GRAY);
-			Points corners;
-			if(findChessboardCorners(greyFrame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
-				cornerSubPix(greyFrame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
-				drawChessboardCorners(frame, boardSize, Mat(corners), true);
-				imagePoints.push_back(corners);
-				
-				string title = "Detection - " + fileName;
-				namedWindow(title, WINDOW_NORMAL);
-				imshow(title, frame);
-			} else{
-				cerr << boost::format("Failed to find chessboard in %1%, the settings may not proper.") % fileName << endl;
-				cout << boost::format("Current settings: Chessboard Size = %1%") % boardSize << endl;
-				exit(EXIT_FAILURE);
-			}
-
-			return EXIT_SUCCESS;
-		});
-	}
-	showGroup.join_all();
-	waitKey(1);
-
-	//for the later iteration, finish ASAP
-	thread_group findGroup;
-	uint concurrency = thread::hardware_concurrency();
-	mutex mtx;
-	for(uint id = 0; id < concurrency; id++){
-		findGroup.create_thread([&]{
-			while(true){
-				mtx.lock();
-				if(!inputFiles.size()){
-					mtx.unlock();
-					break;
-				}
-				string fileName = inputFiles.back();
-				inputFiles.pop_back();
-				mtx.unlock();
-
-				Mat frame = imread(fileName, CV_LOAD_IMAGE_GRAYSCALE);
-				if(frame.empty()){
-					cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
-					return EXIT_FAILURE;
-				}
-
-				Points corners;
-				if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
-					cornerSubPix(frame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
-					imagePoints.push_back(corners);
-				} else{
-					cout << boost::format("Failed to find chessboard in %1%, ignored.") % fileName << endl;
-				}
-			}
-
-			return EXIT_SUCCESS;
-		});
-	}
-	findGroup.join_all();
-
-	//do calibration
-	ObjectPoints objectPoints(1);
-	for (int i = 0; i < boardSize.height; i++) {
-		for (int j = 0; j < boardSize.width; j++){
-			objectPoints[0].push_back(Point3f(float(j * squareSize), float(i * squareSize), 0));
-		}
-	}
-	objectPoints.resize(imagePoints.size(), objectPoints[0]);
-
 	Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
 	Mat distCoeffs = Mat::zeros(8, 1, CV_64F);
-	vector<Mat> rvecs, tvecs;
-	calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix, distCoeffs, rvecs, tvecs, CV_CALIB_FIX_PRINCIPAL_POINT | CV_CALIB_FIX_ASPECT_RATIO | CV_CALIB_ZERO_TANGENT_DIST | CV_CALIB_FIX_K4 | CV_CALIB_FIX_K5);
 
-	if(checkRange(cameraMatrix) && checkRange(distCoeffs)){
-		cout << "CameraMatrix:\n" << cameraMatrix << endl;
-		cout << "DistCoeffs:\n" << distCoeffs << endl;
+	//try to read from xmlFile
+	{
+		FileStorage fs(xmlFile, FileStorage::READ);
+		fs["CameraMatrix"] >> cameraMatrix;
+		fs["DistCoeffs"] >> distCoeffs;
+	}
+
+	if(cameraMatrix.empty() || distCoeffs.empty()){
+		cout << "Hasn't present xml file to load matrix, calibrating camera from scratch..." << endl;
+		ImagePoints imagePoints;
+
+		//inline first few iteration to read image and show them
+		thread_group showGroup;
+		for(uint i = 0; i < displayAmount; i++){
+			string fileName = inputFiles.back();
+			inputFiles.pop_back();
+
+			showGroup.create_thread([&, fileName]{
+				Mat frame = imread(fileName);
+				if(frame.empty()){
+					cerr << boost::format("Failed to read %1%, not a vaild image. Abort.") % fileName << endl;
+					exit(EXIT_FAILURE);
+				}
+
+				Mat greyFrame;
+				cvtColor(frame, greyFrame, COLOR_BGR2GRAY);
+				Points corners;
+				if(findChessboardCorners(greyFrame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
+					cornerSubPix(greyFrame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
+					drawChessboardCorners(frame, boardSize, Mat(corners), true);
+					imagePoints.push_back(corners);
+					
+					string title = "Detection - " + fileName;
+					namedWindow(title, WINDOW_NORMAL);
+					imshow(title, frame);
+				} else{
+					cerr << boost::format("Failed to find chessboard in %1%, the settings may not proper.") % fileName << endl;
+					cout << boost::format("Current settings: Chessboard Size = %1%") % boardSize << endl;
+					exit(EXIT_FAILURE);
+				}
+
+				return EXIT_SUCCESS;
+			});
+		}
+		showGroup.join_all();
+		waitKey(1);
+
+		//for the later iteration, finish ASAP
+		thread_group findGroup;
+		uint concurrency = thread::hardware_concurrency();
+		mutex mtx;
+		for(uint id = 0; id < concurrency; id++){
+			findGroup.create_thread([&]{
+				while(true){
+					mtx.lock();
+					if(!inputFiles.size()){
+						mtx.unlock();
+						break;
+					}
+					string fileName = inputFiles.back();
+					inputFiles.pop_back();
+					mtx.unlock();
+
+					Mat frame = imread(fileName, CV_LOAD_IMAGE_GRAYSCALE);
+					if(frame.empty()){
+						cerr << boost::format("Failed to read %1%, ignored.") % fileName << endl;
+						return EXIT_FAILURE;
+					}
+
+					Points corners;
+					if(findChessboardCorners(frame, boardSize, corners, CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE)){
+						cornerSubPix(frame, corners, Size(11, 11), Size(-1, -1), TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.1));
+						imagePoints.push_back(corners);
+					} else{
+						cout << boost::format("Failed to find chessboard in %1%, ignored.") % fileName << endl;
+					}
+				}
+
+				return EXIT_SUCCESS;
+			});
+		}
+		findGroup.join_all();
+
+		//do calibration
+		ObjectPoints objectPoints(1);
+		for (int i = 0; i < boardSize.height; i++) {
+			for (int j = 0; j < boardSize.width; j++){
+				objectPoints[0].push_back(Point3f(float(j * squareSize), float(i * squareSize), 0));
+			}
+		}
+		objectPoints.resize(imagePoints.size(), objectPoints[0]);
+
+		vector<Mat> rvecs, tvecs;
+		calibrateCamera(objectPoints, imagePoints, imageSize, cameraMatrix, distCoeffs, rvecs, tvecs, CV_CALIB_FIX_PRINCIPAL_POINT | CV_CALIB_FIX_ASPECT_RATIO | CV_CALIB_ZERO_TANGENT_DIST | CV_CALIB_FIX_K4 | CV_CALIB_FIX_K5);
+
+		if(checkRange(cameraMatrix) && checkRange(distCoeffs)){
+			cout << "CameraMatrix:\n" << cameraMatrix << endl;
+			cout << "DistCoeffs:\n" << distCoeffs << endl;
+		} else{
+			cerr << "Calibration give invalid output. Calibrate failed." << endl;
+			return EXIT_FAILURE;
+		}
+
+		FileStorage fs(xmlFile, FileStorage::WRITE);
+		fs << "CameraMatrix" << cameraMatrix;
+		fs << "DistCoeffs" << distCoeffs;
+		cout << "Matrix saved to " << xmlFile << endl;
 	} else{
-		cerr << "Calibration give invalid output. Calibrate failed." << endl;
-		return EXIT_FAILURE;
+		cout << "Successfully load matrix from " << xmlFile << endl;
 	}
 
 	//rshow undistorted images
@@ -198,6 +216,7 @@ int main(int argc, char *argv[]) {
 	createTrackbar("Height", "Perspective", &height, 100, heightChanged, &transform);
 	doTransform(height, &transform);
 
+	cout << "You can press 'q' to quit, and any other key to save an snapshot." << endl;
 	while(true){
 		char keycode = waitKey();
 		if(keycode == 'q' || keycode == 'Q'){
