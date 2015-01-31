@@ -1,6 +1,6 @@
-#include <ctime>
 #include <iostream>
 #include <algorithm>
+#include <boost/timer.hpp>
 #include <boost/format.hpp>
 #include <boost/filesystem.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -13,11 +13,17 @@ using namespace cv;
 
 typedef tuple<Mat, int> Sample;
 
+void logTime(const string& message);
+
 int main(int argc, char *argv[]) {
+	logTime("Launched");
+
 	CommandLineParser cmd(argc, argv,
-		"{ 1 |      |       | Photos directory }"
-		"{ t | test | 10    | Number of test case }"
-		"{ h | help | false | Show this help message }"
+		"{ 1 |       |       | Photos directory }"
+		"{ t | test  | 10    | Number of test case }"
+		"{ m | model | e     | e(Eigenfaces)/f(Fisherfaces)/l(LBPH) }"
+		"{ d | dim   | 100   | Dimension of PCA, only for Eigenfaces }"
+		"{ h | help  | false | Show this help message }"
 	);
 
 	string inputDir = cmd.get<string>("1");
@@ -28,9 +34,24 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	uint numTestCase = cmd.get<int>("test");
+	uint numTestCase = cmd.get<uint>("test");
+	char modelName = cmd.get<string>("model").front();
+	int dim = cmd.get<int>("dim");
 	vector<Sample> samples;
 	map<int, string> names;
+
+	cout << boost::format(
+		"Parameters:\n"
+		"\tPhotos directory: %1%\n"
+		"\tNumber of test case: %2%\n"
+		"\tModel Use: %3%\n"
+	) % inputDir % numTestCase % modelName;
+
+	if(modelName == 'e'){
+		cout << boost::format("\tDimension: %1%\n") % dim << endl;
+	} else{
+		cout << endl;
+	}
 
 	try {
 		int index = 0;
@@ -53,9 +74,8 @@ int main(int argc, char *argv[]) {
 
 	if(names.size() <= numTestCase) {
 		cerr << boost::format("No enough photos, you request %1% test cases, but the photos only have %2% labels") % numTestCase % names.size() << endl;
-		return EXIT_FAILURE;
+		exit(EXIT_FAILURE);
 	}
-
 	shuffle(samples.begin(), samples.end(), default_random_engine(time(NULL)));
 
 	vector<Mat> images, testImages;
@@ -72,25 +92,54 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	//since the performance is enough, set a high dimension
-	Ptr<FaceRecognizer> model = createEigenFaceRecognizer(100);
-	model->train(images, labels);
+	Ptr<FaceRecognizer> model;
+	switch(modelName){
+		case 'e':
+			model = createEigenFaceRecognizer(dim);
+			break;
+		case 'f':
+			model = createFisherFaceRecognizer();
+			break;
+		case 'l':
+			model = createLBPHFaceRecognizer();
+			break;
+		default:
+			cerr << "Unknown model" << endl;
+			exit(EXIT_FAILURE);
+	}
 
+	logTime("Before training");
+	model->train(images, labels);
+	logTime("After training");
+
+	int correct = 0;
+	logTime("Before predication");
 	for(uint i = 0; i < numTestCase; i++){
 		int predicate;
 		double confidence;
 		model->predict(testImages[i], predicate, confidence);
 		cout << boost::format("Predicate: %1%, Actual: %2%, Confidence: %3%") % names[predicate] % names[testLabels[i]] % confidence << endl;
 
+		if(predicate == testLabels[i]){
+			correct++;
+		}
+
 		string text = (boost::format("%1%/%2%") % names[predicate] % names[testLabels[i]]).str();
 		Point pos(testImages[i].size().width * 0.02, testImages[i].size().height * 0.98);
-		putText(testImages[i], text, pos,  FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255, 255, 255));
+		putText(testImages[i], text, pos,  FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255, 255, 255));
 
 		string title = "Test Case - " + to_string(i);
 		namedWindow(title, WINDOW_NORMAL);
 		imshow(title, testImages[i]);
 	}
+	cout << "Accuracy: " << (100.0 * correct / numTestCase) << '%' << endl;
+	logTime("Finished");
 
 	waitKey();
 	return EXIT_SUCCESS;
+}
+
+void logTime(const string& message) {
+	static timer t;
+	cout << boost::format("[%1%] %2%") % t.elapsed() % message << endl;
 }
