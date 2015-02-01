@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
 	CommandLineParser cmd(argc, argv,
 		"{ 1 |       |       | Photos directory }"
 		"{ t | test  | 10    | Test set size }"
-		"{ l | limit | 100   | Max samples for each label }"
+		"{ l | limit | 10    | Max samples for each label }"
 		"{ m | model | e     | e(Eigenfaces)/f(Fisherfaces)/l(LBPH) }"
 		"{ d | dim   | 100   | Dimension of PCA, only for Eigenfaces }"
 		"{ h | help  | false | Show this help message }"
