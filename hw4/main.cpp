@@ -21,6 +21,7 @@ int main(int argc, char *argv[]) {
 	CommandLineParser cmd(argc, argv,
 		"{ 1 |       |       | Photos directory }"
 		"{ t | test  | 10    | Test set size }"
+		"{ l | limit | 100   | Max samples for each label }"
 		"{ m | model | e     | e(Eigenfaces)/f(Fisherfaces)/l(LBPH) }"
 		"{ d | dim   | 100   | Dimension of PCA, only for Eigenfaces }"
 		"{ h | help  | false | Show this help message }"
@@ -35,6 +36,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	uint numTestCase = cmd.get<uint>("test");
+	int limit = cmd.get<int>("limit");
 	char modelName = cmd.get<string>("model").front();
 	int dim = cmd.get<int>("dim");
 	vector<Sample> samples;
@@ -45,8 +47,13 @@ int main(int argc, char *argv[]) {
 		for(auto it = directory_iterator(inputDir); it != directory_iterator(); it++){
 			if(is_directory(it->path())){
 				names[index] = it->path().leaf().string();
+				int count = 1;
 				for(auto img = directory_iterator(it->path().string()); img != directory_iterator(); img++){
-					samples.push_back(Sample(imread(img->path().string(), CV_LOAD_IMAGE_GRAYSCALE), index));
+					if(count++ <= limit){
+						samples.push_back(Sample(imread(img->path().string(), CV_LOAD_IMAGE_GRAYSCALE), index));
+					} else{
+						break;
+					}
 				}
 				index++;
 			}
@@ -65,8 +72,9 @@ int main(int argc, char *argv[]) {
 		"\tTrain set size: %2%\n"
 		"\tTest set size: %3%\n"
 		"\tSample labels: %4%\n"
-		"\tModel Use: %5%\n"
-	) % inputDir % samples.size() % numTestCase % names.size() % modelName;
+		"\tMax Sample per label: %5%\n"
+		"\tModel Use: %6%\n"
+	) % inputDir % (samples.size() - numTestCase) % numTestCase % names.size() % limit % modelName;
 
 	if(modelName == 'e'){
 		cout << boost::format("\tDimension: %1%\n") % dim << endl;
