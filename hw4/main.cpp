@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
 
 	CommandLineParser cmd(argc, argv,
 		"{ 1 |       |       | Photos directory }"
-		"{ t | test  | 10    | Number of test case }"
+		"{ t | test  | 10    | Test set size }"
 		"{ m | model | e     | e(Eigenfaces)/f(Fisherfaces)/l(LBPH) }"
 		"{ d | dim   | 100   | Dimension of PCA, only for Eigenfaces }"
 		"{ h | help  | false | Show this help message }"
@@ -39,19 +39,6 @@ int main(int argc, char *argv[]) {
 	int dim = cmd.get<int>("dim");
 	vector<Sample> samples;
 	map<int, string> names;
-
-	cout << boost::format(
-		"Parameters:\n"
-		"\tPhotos directory: %1%\n"
-		"\tNumber of test case: %2%\n"
-		"\tModel Use: %3%\n"
-	) % inputDir % numTestCase % modelName;
-
-	if(modelName == 'e'){
-		cout << boost::format("\tDimension: %1%\n") % dim << endl;
-	} else{
-		cout << endl;
-	}
 
 	try {
 		int index = 0;
@@ -72,10 +59,26 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
+	cout << boost::format(
+		"Parameters:\n"
+		"\tPhotos directory: %1%\n"
+		"\tTrain set size: %2%\n"
+		"\tTest set size: %3%\n"
+		"\tSample labels: %4%\n"
+		"\tModel Use: %5%\n"
+	) % inputDir % samples.size() % numTestCase % names.size() % modelName;
+
+	if(modelName == 'e'){
+		cout << boost::format("\tDimension: %1%\n") % dim << endl;
+	} else{
+		cout << endl;
+	}
+
 	if(names.size() <= numTestCase) {
 		cerr << boost::format("No enough photos, you request %1% test cases, but the photos only have %2% labels") % numTestCase % names.size() << endl;
 		exit(EXIT_FAILURE);
 	}
+
 	shuffle(samples.begin(), samples.end(), default_random_engine(time(NULL)));
 
 	vector<Mat> images, testImages;
